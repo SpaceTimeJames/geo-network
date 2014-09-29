@@ -25,6 +25,7 @@ import xml.sax as sax
 import networkx as nx
 import cPickle as pk
 import scipy as sp
+import numpy as np
 from collections import defaultdict
 import bisect as bs
 import pysal as psl
@@ -268,7 +269,7 @@ class ITNData():
         f.close()
 
 
-class ITNStreetNet():
+class ITNStreetNet(object):
     
     '''
     This is the main street network object derived from the ITN.
@@ -326,16 +327,19 @@ class ITNStreetNet():
         
         g=nx.MultiGraph()
         
-        for roadLink_fid in Data.roadLinks:
+        for roadLink_fid, roadLink_inst in Data.roadLinks.iteritems():
             
             #In network terms, the roadlink is just encoded as a simple edge between
             #the two terminal nodes, but the full polyline geometry is included
             #as an attribute of the link, as is the FID.
             
-            atts=Data.roadLinks[roadLink_fid].tags
-            atts['polyline']=Data.roadLinks[roadLink_fid].polyline
-            atts['fid']=roadLink_fid
-            
+            atts = roadLink_inst.tags
+            # these seem to be present already?
+            # atts['polyline'] = roadLink_inst.polyline
+            # atts['fid'] = roadLink_fid
+            atts['linestring'] = LineString(roadLink_inst.polyline)
+
+
             #This if statement just checks that both terminal nodes are in the roadNodes
             #dataset. Sometimes, around the edges, they are not - this causes problems
             #down the line so such links are omitted. The [:-2] is to ignore the
@@ -347,10 +351,11 @@ class ITNStreetNet():
         
         #Only want the largest connected component - sometimes fragments appear
         #round the edge - so take that.
-        ## TODO proper fix here!
-        # import ipdb; ipdb.set_trace()
-        # g=nx.connected_component_subgraphs(g)[0]
-        g = nx.connected_component_subgraphs(g).next()
+        # NB this interface has changed with NetworkX v1.9
+        if float(nx.__version__) >= 1.9:
+            g = sorted(nx.connected_component_subgraphs(g), key=len, reverse=True)[0]
+        else:
+            g=nx.connected_component_subgraphs(g)[0]
 
         self.g=g
     
@@ -363,7 +368,17 @@ class ITNStreetNet():
         
         for v in self.g:
             self.g.node[v]['pos']=Data.roadNodes[v[:-2]].eas_nor
-        
+
+
+    def edges(self, bpoly=None):
+        '''
+        Get all edges in the network.  Optionally return only those that intersect the provided bounding polygon
+        '''
+        if bpoly:
+            return [x for x in self.g.edges(data=True) if bpoly.intersects(x[2]['linestring'])]
+        else:
+            return self.g.edges(data=True)
+
     
     def plot_network_plain(self,min_x,max_x,min_y,max_y, ax=None,
                            show_edges=True,show_nodes=False,edge_width=1,
@@ -636,9 +651,34 @@ class ITNStreetNet():
             dist_along[closest_edge[2]['orientation_pos']]=closest_polyline.length-closest_polyline.project(point)
                 
             return closest_edge,dist_along,snap_dist
+
+
+    def closest_segments_euclidean_brute_force(self, x, y, radius=None):
+        pt = Point(x, y)
+        if radius:
+            bpoly = pt.buffer(radius)
+        else:
+            bpoly = None
+
+        edges = self.edges(bpoly=bpoly)
+        if not len(edges):
+            # no valid edges found, bail.
+            return None
+
+        snap_distances = [x[2]['linestring'].distance(pt) for x in edges]
+        snap_distance = min(snap_distances)
+        closest_edge = edges[snap_distances.index(snap_distance)]
+
+        da = closest_edge[2]['linestring'].project(pt)
+        dist_along={
+            closest_edge[2]['orientation_neg']: da,
+            closest_edge[2]['orientation_pos']: closest_edge[2]['linestring'].length - da,
+        }
+
+        return closest_edge, dist_along, snap_distance
+
     
-    
-    def dist_between_points(self,dist_along1,dist_along2):
+    def dist_between_points(self, dist_along1, dist_along2):
         '''
         Gives the minimum network distance between two points, given the dist_along
         output for each of them from closest_segments_euclidean().
@@ -666,9 +706,6 @@ class ITNStreetNet():
                 distances.append(total_distance)
         
         return min(distances)
-    
-
-
 
 
 def read_gml(filename):
@@ -679,3 +716,16 @@ def read_gml(filename):
     return CurrentData
 
 
+if __name__ == '__main__':
+
+    from settings import DATA_DIR
+    import os
+
+    ITNFILE = os.path.join(DATA_DIR, 'network_data/itn_sample', 'mastermap-itn_417209_0_brixton_sample.gml')
+
+    # A little demo
+
+    #Just build the network as usual
+    itndata = read_gml(ITNFILE)
+    g = ITNStreetNet()
+    g.load_from_data(itndata)
