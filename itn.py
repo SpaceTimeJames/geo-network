@@ -35,6 +35,8 @@ from matplotlib.path import Path
 from matplotlib.colors import Normalize
 from matplotlib.colorbar import ColorbarBase
 
+from distutils.version import StrictVersion
+
 
 #The following classes correspond exactly to the entities present in an ITN GML
 #file, and their purpose is just to store that data in a consistent way in Python.
@@ -346,13 +348,12 @@ class ITNStreetNet(object):
             #gradeSeparation tag that I added when parsing.
             
             if atts['orientation_neg'][:-2] in Data.roadNodes and atts['orientation_pos'][:-2] in Data.roadNodes:
-                
-                g.add_edge(atts['orientation_neg'],atts['orientation_pos'],key=atts['fid'],attr_dict=atts)
+                g.add_edge(atts['orientation_neg'],atts['orientation_pos'],key=roadLink_fid,attr_dict=atts)
         
         #Only want the largest connected component - sometimes fragments appear
         #round the edge - so take that.
         # NB this interface has changed with NetworkX v1.9
-        if float(nx.__version__) >= 1.9:
+        if StrictVersion(nx.__version__) >= StrictVersion('1.9'):
             g = sorted(nx.connected_component_subgraphs(g), key=len, reverse=True)[0]
         else:
             g=nx.connected_component_subgraphs(g)[0]
@@ -573,7 +574,7 @@ class ITNStreetNet(object):
         edge_locator=defaultdict(list)
         
         #Loop segments
-        for e in self.g.edges(data=True):
+        for e in self.g.edges_iter(data=True):
             #Produce shapely polyline
             edge_line=LineString(e[2]['polyline'])
             
@@ -653,31 +654,6 @@ class ITNStreetNet(object):
             return closest_edge,dist_along,snap_dist
 
 
-    def closest_segments_euclidean_brute_force(self, x, y, radius=None):
-        pt = Point(x, y)
-        if radius:
-            bpoly = pt.buffer(radius)
-        else:
-            bpoly = None
-
-        edges = self.edges(bpoly=bpoly)
-        if not len(edges):
-            # no valid edges found, bail.
-            return None
-
-        snap_distances = [x[2]['linestring'].distance(pt) for x in edges]
-        snap_distance = min(snap_distances)
-        closest_edge = edges[snap_distances.index(snap_distance)]
-
-        da = closest_edge[2]['linestring'].project(pt)
-        dist_along={
-            closest_edge[2]['orientation_neg']: da,
-            closest_edge[2]['orientation_pos']: closest_edge[2]['linestring'].length - da,
-        }
-
-        return closest_edge, dist_along, snap_distance
-
-    
     def dist_between_points(self, dist_along1, dist_along2):
         '''
         Gives the minimum network distance between two points, given the dist_along
@@ -706,6 +682,58 @@ class ITNStreetNet(object):
                 distances.append(total_distance)
         
         return min(distances)
+
+    ### ADDED BY GABS
+    def lines_iter(self):
+        """
+        Returns a generator that iterates over all edge linestrings.
+        This is useful for various spatial operations.
+        """
+        for e in self.g.edges_iter(data=True):
+            yield e[2]['linestring']
+
+    def closest_segments_euclidean_brute_force(self, x, y, radius=None):
+        pt = Point(x, y)
+        if radius:
+            bpoly = pt.buffer(radius)
+        else:
+            bpoly = None
+
+        edges = self.edges(bpoly=bpoly)
+        if not len(edges):
+            # no valid edges found, bail.
+            return None
+
+        snap_distances = [x.distance(pt) for x in self.lines_iter()]
+        snap_distance = min(snap_distances)
+        closest_edge = edges[snap_distances.index(snap_distance)]
+
+        da = closest_edge[2]['linestring'].project(pt)
+        dist_along={
+            closest_edge[2]['orientation_neg']: da,
+            closest_edge[2]['orientation_pos']: closest_edge[2]['linestring'].length - da,
+        }
+
+        return closest_edge, dist_along, snap_distance
+
+    @property
+    def extent(self):
+        """
+        Compute the rectangular bounding coordinates of the edges
+        """
+        xmin = np.inf
+        ymin = np.inf
+        xmax = -np.inf
+        ymax = -np.inf
+
+        for l in self.lines_iter():
+            a, b, c, d = l.bounds
+            xmin = min(xmin, a)
+            ymin = min(ymin, b)
+            xmax = max(xmax, c)
+            ymax = max(ymax, d)
+
+        return xmin, ymin, xmax, ymax
 
 
 def read_gml(filename):
