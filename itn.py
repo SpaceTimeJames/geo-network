@@ -757,3 +757,10 @@ if __name__ == '__main__':
     itndata = read_gml(ITNFILE)
     g = ITNStreetNet()
     g.load_from_data(itndata)
+
+    # generate some random points inside camden
+    import numpy as np
+    xmin, ymin, xmax, ymax = g.extent
+    xs = np.random.rand(100)*(xmax - xmin) + xmin
+    ys = np.random.rand(100)*(ymax - ymin) + ymin
+    net_pts = [g.closest_segments_euclidean_brute_force(x, y)[1] for (x, y) in zip(xs, ys)]
