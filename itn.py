@@ -336,9 +336,9 @@ class ITNStreetNet(object):
             #as an attribute of the link, as is the FID.
             
             atts = roadLink_inst.tags
-            # these seem to be present already?
+            # replacing this with a pre-built Shapely Linestring
             # atts['polyline'] = roadLink_inst.polyline
-            # atts['fid'] = roadLink_fid
+            atts['fid'] = roadLink_fid
             atts['linestring'] = LineString(roadLink_inst.polyline)
 
 
@@ -576,7 +576,8 @@ class ITNStreetNet(object):
         #Loop segments
         for e in self.g.edges_iter(data=True):
             #Produce shapely polyline
-            edge_line=LineString(e[2]['polyline'])
+            # edge_line=LineString(e[2]['polyline'])
+            edge_line = e[2]['linestring']
             
             #Get bounding box of polyline
             (bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y)=edge_line.bounds
@@ -625,7 +626,8 @@ class ITNStreetNet(object):
         #near_edges now contains all candidates for closest edge
         
         #Calculate the distances to each
-        edge_distances=[point.distance(LineString(e[2]['polyline'])) for e in near_edges]
+        # edge_distances=[point.distance(LineString(e[2]['polyline'])) for e in near_edges]
+        edge_distances=[point.distance(e[2]['linestring']) for e in near_edges]
         
         #Order the edges according to proximity, omitting those which are further than radius away
         edge_hierarchy=[x for x in sorted(zip(near_edges,edge_distances),key=lambda x: x[1]) if x[1]<radius]
@@ -640,7 +642,8 @@ class ITNStreetNet(object):
             #Already know the closest edge, and how far it is from the point
             closest_edge,snap_dist=edge_hierarchy[0]
             
-            closest_polyline=LineString(closest_edge[2]['polyline'])
+            # closest_polyline=LineString(closest_edge[2]['polyline'])
+            closest_polyline=closest_edge[2]['linestring']
             
             #dist_along is a lookup, indexed by each of the terminal nodes of closest_edge,
             #which gives the distance from that node to the point on the line to which
