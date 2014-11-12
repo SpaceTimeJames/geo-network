@@ -354,7 +354,11 @@ class ITNStreetNet(object):
         #round the edge - so take that.
         # NB this interface has changed with NetworkX v1.9
         if StrictVersion(nx.__version__) >= StrictVersion('1.9'):
-            g = sorted(nx.connected_component_subgraphs(g), key=len, reverse=True)[0]
+            try:
+                g = sorted(nx.connected_component_subgraphs(g), key=len, reverse=True)[0]
+            except IndexError as exc:
+                print "Error - probably because the graph is empty"
+                raise
         else:
             g=nx.connected_component_subgraphs(g)[0]
 
