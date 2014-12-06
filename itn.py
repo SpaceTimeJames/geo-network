@@ -384,10 +384,41 @@ class ITNStreetNet(object):
         else:
             return self.g.edges(data=True)
 
-    
-    def plot_network_plain(self,min_x,max_x,min_y,max_y, ax=None,
+    def generate_edge_patches(self, bbox, **kwargs):
+        '''
+        Iteratively generate path patches for every visible edge
+
+        :param bbox: shapely Polygon defining the visible area
+        :param kwargs: dictionary of options passed to PathPatch
+        :return: array of type PathPatch for adding to a matplotlib axis.  Optionally, can add edge caps too
+        '''
+
+        res = []
+        for ls in self.lines_iter():
+                #This checks that at least some of the line lies within the bounding
+                #box. This is to avoid creating unnecessary lines which will not
+                #actually be seen.
+                if ls.intersects(bbox):
+                    path=Path(ls)
+                    res.append(patches.PathPatch(path, facecolor='none', **kwargs))
+
+                    #These circles are a massive fudge to give the lines 'rounded'
+                    #ends. They look nice, but best to only do them at the last
+                    #minute because it is hard to work out what radius they should
+                    #be - the units scale differently to edge_width so need to be
+                    #trial-and-errored each time.
+
+                    # res.append(patches.Circle(poly_points[0],radius=3.2*edge_width,facecolor='k',edgecolor='k',lw=0,zorder=1))
+                    # res.append(patches.Circle(poly_points[-1],radius=3.2*edge_width,facecolor='k',edgecolor='k',lw=0,zorder=1))
+
+        return res
+
+    def plot_network_plain(self,
+                           bounds=None,
+                           ax=None,
                            show_edges=True,show_nodes=False,edge_width=1,
-                           node_size=7,edge_col='k',node_col='r'):
+                           node_size=7,edge_col='k',node_col='r',
+                           **kwargs):
         
         '''
         This plots the section of the network that lies within a given bounding
@@ -400,45 +431,37 @@ class ITNStreetNet(object):
         All the switches and options are fairly self-explanatory I think.
         '''
         ax = ax or plt.gca()
-        
+        bounds = bounds or self.extent  # default to plotting full network
+        xmin, ymin, xmax, ymax = bounds
+
+        # create bounding box polygon for intersection tests
+        bbox = Polygon([
+            (xmin, ymin),
+            (xmax, ymin),
+            (xmax, ymax),
+            (xmin, ymax),
+            (xmin, ymin),
+        ])
+
         if show_edges:
-            for e in self.g.edges(data=True):
-                
-                bbox_check=[min_x<=p[0]<=max_x and min_y<=p[1]<=max_y for p in e[2]['polyline']]
-                
-                #This checks that at least some of the line lies within the bounding
-                #box. This is to avoid creating unnecessary lines which will not
-                #actually be seen.
-                
-                if any(bbox_check):
-                    path=Path(e[2]['polyline'])
-                    patch = patches.PathPatch(path, facecolor='none', edgecolor=edge_col, lw=edge_width)
-                    ax.add_patch(patch)
-                    
-                    #These circles are a massive fudge to give the lines 'rounded'
-                    #ends. They look nice, but best to only do them at the last
-                    #minute because it is hard to work out what radius they should
-                    #be - the units scale differently to edge_width so need to be
-                    #trial-and-errored each time.
-                    
-#                    end1=patches.Circle(poly_points[0],radius=3.2*edge_width,facecolor='k',edgecolor='k',lw=0,zorder=1)
-#                    ax.add_patch(end1)
-#                    end2=patches.Circle(poly_points[-1],radius=3.2*edge_width,facecolor='k',edgecolor='k',lw=0,zorder=1)
-#                    ax.add_patch(end2)
+            [ax.add_patch(patch) for patch in self.generate_edge_patches(bbox, edgecolor=edge_col, lw=edge_width, **kwargs)]
         
         if show_nodes:
             node_points=[self.g.node[v]['pos'] for v in self.g]
-            node_points_bbox=[p for p in node_points if min_x<=p[0]<=max_x and min_y<=p[1]<=max_y]
+            node_points_bbox=[p for p in node_points if xmin <= p[0] <= xmax and ymin <= p[1] <= ymax]
             x,y = zip(*node_points_bbox)
             ax.scatter(x,y,c=node_col,s=node_size,zorder=5)
         
-        ax.set_xlim(min_x,max_x)
-        ax.set_ylim(min_y,max_y)
+        ax.set_xlim(xmin, xmax)
+        ax.set_ylim(ymin, ymax)
     
     
-    def plot_network_plain_col(self,min_x,max_x,min_y,max_y,cols, ax=None,
-                           show_edges=True,show_nodes=False,edge_width=1,
-                           node_size=7,edge_col='k',node_col='r'):
+    def plot_network_plain_col(self,
+                               cols,
+                               bounds=None,
+                               ax=None,
+                               show_edges=True,show_nodes=False,edge_width=1,
+                               node_size=7,edge_col='k',node_col='r'):
         
         '''
         This does exactly the same as above, but each edge can be given its own 
@@ -451,14 +474,26 @@ class ITNStreetNet(object):
         a big difference to visual effect.
         '''
         ax = ax or plt.gca()
+        bounds = bounds or self.extent  # default to plotting full network
+        min_x, min_y, max_x, max_y = bounds
+
+        # create bounding box polygon for intersection tests
+        bbox = Polygon([
+            (min_x, min_y),
+            (max_x, min_y),
+            (max_x, max_y),
+            (min_x, max_y),
+            (min_x, min_y),
+        ])
         
         if show_edges:
+            # for ls in self.lines_iter():
             for e in self.g.edges(data=True):
-                
-                bbox_check=[min_x<=p[0]<=max_x and min_y<=p[1]<=max_y for p in e[2]['polyline']]
-                
-                if any(bbox_check):
-                    path=Path(e[2]['polyline'])
+                ls = e[2]['linestring']
+                # bbox_check=[min_x<=p[0]<=max_x and min_y<=p[1]<=max_y for p in e[2]['polyline']]
+                # if any(bbox_check):
+                if ls.intersects(bbox):
+                    path=Path(ls)
                     out_patch = patches.PathPatch(path, facecolor='none', edgecolor=edge_col, lw=edge_width)
                     ax.add_patch(out_patch)
 #                    end1=patches.Circle(poly_points[0],radius=3.2*edge_width,facecolor='k',edgecolor='k',lw=0,zorder=1)
@@ -473,7 +508,8 @@ class ITNStreetNet(object):
 #                        ax.add_patch(end1)
 #                        end2=patches.Circle(poly_points[-1],radius=3.2*0.6*edge_width,facecolor=col,edgecolor=None,lw=0,zorder=1)
 #                        ax.add_patch(end2)
-                    except:
+                    except Exception as exc:
+                        print repr(exc)
                         pass
         
         if show_nodes:
@@ -742,6 +778,13 @@ class ITNStreetNet(object):
 
         return xmin, ymin, xmax, ymax
 
+    def snapped_point_to_xy(self, closest_edge, dist_along):
+        ## TODO: check the order of linestring definition (neg to pos?)
+        ls = closest_edge[2]['linestring']
+        pos_fid = closest_edge[2]['orientation_neg']
+        pt = ls.interpolate(dist_along[pos_fid])
+        return pt.x, pt.y
+
 
 def read_gml(filename):
     CurrentHandler=ITNHandler()
@@ -755,6 +798,10 @@ if __name__ == '__main__':
 
     from settings import DATA_DIR
     import os
+    from network.plotting import network_point_coverage, colorline
+    from network.geos import NetworkPoint
+    from kde.okabe import EqualSplitKernel
+
 
     ITNFILE = os.path.join(DATA_DIR, 'network_data/itn_sample', 'mastermap-itn_417209_0_brixton_sample.gml')
 
@@ -768,6 +815,87 @@ if __name__ == '__main__':
     # generate some random points inside camden
     import numpy as np
     xmin, ymin, xmax, ymax = g.extent
+    x_grid, y_grid, edge_locator = g.bin_edges(xmin, xmax, ymin, ymax, 50)
+
     xs = np.random.rand(100)*(xmax - xmin) + xmin
     ys = np.random.rand(100)*(ymax - ymin) + ymin
     net_pts = [g.closest_segments_euclidean_brute_force(x, y)[1] for (x, y) in zip(xs, ys)]
+
+    # example: plotting with colours:
+    # fids = [x[2]['fid'] for x in g.g.edges(data=True)]
+    # cols = dict([(x,y) for x, y in zip(fids, np.random.random((len(fids), 3)))])
+    # g.plot_network_plain_col(cols, edge_width=5)
+
+    #Four test points - 1 and 3 on same segment, 2 on neighbouring segment, 4 long way away.
+    test_points = [
+        [531291, 175044],
+        # [531293, 175054],
+        [531185, 175207],
+        [531466, 175005],
+        [531643, 175061],
+        [531724, 174826],
+        [531013, 175294],
+        [531426, 175315],
+        [531459, 175075],
+        [531007, 175037],
+    ]
+    closest_edge = []
+    dist_along = []
+    network_points = []
+    kde_source_points = {}
+
+    # Add these points as the kernel sources
+    for i, t in enumerate(test_points):
+        c, d, _ = g.closest_segments_euclidean(t[0], t[1], x_grid, y_grid, edge_locator)
+        closest_edge.append(c)
+        dist_along.append(d)
+        network_points.append(NetworkPoint(g.g, **d))
+        kde_source_points['point%d' % i] = (c, d)
+
+
+    #Initialise the kernel
+    TestKernel = EqualSplitKernel(g, kde_source_points, 100)
+
+    #Both evaluation methods
+    ## TODO: see comments in evaluate_point for why these differ
+    print TestKernel.evaluate_non_point((closest_edge[1],dist_along[1]))
+    print TestKernel.evaluate_point('point1')
+
+    # define a whole load of points on the network for plotting
+    xy, cd = network_point_coverage(g.g, dx=5)
+
+    # evaluate KDE at those points
+    res = []
+    failed = []
+    max_res = 0.
+    for arr in cd:
+        this_res = []
+        for t in arr:
+            try:
+                this_res.append(TestKernel.evaluate_non_point(t))
+            except KeyError as exc:
+                this_res.append(np.nan)
+                failed.append(repr(exc))
+        max_res = max(max_res, max(this_res))
+        res.append(this_res)
+
+    # plt.scatter(xy[:,0], xy[:,1], c=res, s=30, edgecolor='none')
+    # plt.colorbar()
+
+    plt.figure()
+    ax = plt.gca()
+    g.plot_network_plain(ax=ax, edge_width=6)
+    norm = plt.Normalize(0., max_res)
+    for i in range(len(cd)): # all segments
+        this_xy = np.array(xy[i])
+        colorline(this_xy[:, 0], this_xy[:, 1], z=res[i], norm=norm, linewidth=5, cmap=plt.get_cmap('jet'))
+    plt.axis([xmin, xmax, ymin, ymax])
+    plt.axis('equal')
+
+    ax.xaxis.set_ticks([])
+    ax.yaxis.set_ticks([])
+
+    # add circles to sources to show cartesian equivalent
+    for tp in test_points:
+        circ = plt.Circle(tp, 100, facecolor='none', edgecolor='k', alpha=0.5)
+        ax.add_patch(circ)

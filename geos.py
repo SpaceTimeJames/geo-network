@@ -29,7 +29,7 @@ class NetworkPoint(dict):
                 if k1 == k2:
                     num_matches += 1
                 #Get the network distance between terminal nodes
-                network_distance=nx.dijkstra_path_length(self.g, k1, k2, 'length')
+                network_distance = nx.dijkstra_path_length(self.g, k1, k2, 'length')
 
                 #Add the extra distance at each end of the route
                 total_distance = network_distance + da1 + da2
