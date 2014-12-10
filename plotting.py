@@ -59,6 +59,10 @@ def network_point_coverage(net, dx=None, include_nodes=True):
              (ii) E x N(i) array of (closest_edge, dist_along) tuples)
     TODO: switch to using NetworkPoint objects
     '''
+
+    # small delta to avoid errors
+    eps = 1e-6
+
     ## temp set dx with a constant
     xy = []
     cd = []
@@ -66,8 +70,8 @@ def network_point_coverage(net, dx=None, include_nodes=True):
     for e in net.edges(data=True):
         this_xy = []
         this_cd = []
-        interp_lengths = np.arange(1e-6, e[2]['length'] - 1e-6, dx)
-        interp_lengths = np.concatenate((interp_lengths, [e[2]['length'] - 1e-6]))
+        interp_lengths = np.arange(eps, e[2]['length'] - eps, dx)
+        interp_lengths = np.concatenate((interp_lengths, [e[2]['length'] - eps]))
         # interpolate along linestring
         ls = e[2]['linestring']
         interp_pts = [ls.interpolate(t) for t in interp_lengths]
