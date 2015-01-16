@@ -22,6 +22,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.path import Path
+from distutils.version import StrictVersion
 import ModestMaps as mm
 from ModestMaps import Geo
 from ModestMaps import OpenStreetMap
@@ -34,7 +35,7 @@ projection = pyproj.Proj('+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.
 
 class Node():
     
-    def __init__(self,feature_id,lonlat,tags):
+    def __init__(self, feature_id, lonlat, tags):
         self.feature_id = feature_id
         self.lonlat = lonlat
         self.lon, self.lat = lonlat
@@ -44,7 +45,7 @@ class Node():
 
 class Way():
     
-    def __init__(self,feature_id,refs,tags):
+    def __init__(self, feature_id, refs, tags):
         self.feature_id = feature_id
         self.nds = refs
 #        self.geometry = LineString([(nodes[ref].x,nodes[ref].y) for ref in refs])
@@ -53,7 +54,7 @@ class Way():
 
 class Relation():
     
-    def __init__(self,feature_id,members,tags):
+    def __init__(self,feature_id, members, tags):
         self.feature_id = feature_id
         self.members = members
         self.tags = tags
@@ -74,8 +75,8 @@ class OSMHandler(sax.handler.ContentHandler):
         if name=='node':
             self.id = attrs['id']
             self.tags = {}
-            self.geometry = map(float,(attrs['lon'],attrs ['lat']))
-        
+            self.geometry = (float(attrs['lon']), float(attrs ['lat']))
+
         elif name=='way':
             self.id = attrs['id']
             self.tags = {}
@@ -96,18 +97,14 @@ class OSMHandler(sax.handler.ContentHandler):
             self.tags[attrs['k']] = attrs['v']
     
     def endElement(self,name):
-        if name=='node':
-            self.nodes[self.id] = Node(self.id,self.geometry,self.tags)
-            self.id = None
-            self.geometry = None
-            self.tags = None
-        
-        elif name=='way':
-            self.ways[self.id ] = Way(self.id,self.geometry,self.tags)
+        if name == 'node':
+            self.nodes[self.id] = Node(self.id, self.geometry, self.tags)
             self.reset()
-        
-        elif name=='relation':
-            self.relations[self.id ] = Relation(self.id,self.geometry,self.tags)
+        elif name == 'way':
+            self.ways[self.id] = Way(self.id, self.geometry, self.tags)
+            self.reset()
+        elif name == 'relation':
+            self.relations[self.id] = Relation(self.id,self.geometry,self.tags)
             self.reset()
     
     def reset (self):
@@ -142,14 +139,10 @@ class OSMStreetNet():
         self.build_network(Data)
         
         print 'Building position dictionary'
-        self.build_posdict(Data)
+        self.add_node_locations(Data)
         
         print 'Unifying segments'
         self.unify_segments()
-        
-#        self.remove_rdb()
-#        
-#        self.assign_indices()
     
     
     def inherit(self,g,posdict):
@@ -160,37 +153,59 @@ class OSMStreetNet():
     
     def build_network(self,Data):
         
-        g=nx.MultiGraph()
+        g = nx.MultiGraph()
         
-        highways_all=[way for way in Data.ways.values() if 'highway' in way.tags]
+        highways_all = [way for way in Data.ways.values() if 'highway' in way.tags]
         
         blacklist=['footway','service']
         
-        highways=[way for way in highways_all if way.tags['highway'] not in blacklist]
+        highways = [way for way in highways_all if way.tags['highway'] not in blacklist]
         
         for way in highways:
             for i in range(len(way.nds)-1):
                 atts={}
                 if 'junction' in way.tags:
                     if way.tags['junction']=='roundabout':
-                        atts['rdb']=True
+                        atts['rdb'] = True
                 else:
-                    atts['rdb']=False
-                atts['poly_line']=[way.nds[i],way.nds[i+1]]
-                g.add_edge(way.nds[i],way.nds[i+1],attr_dict=atts)
-        
-        g=nx.connected_component_subgraphs(g)[0]
-        
-        self.g=g
+                    atts['rdb'] = False
+                atts['poly_line'] = [way.nds[i], way.nds[i+1]]
+                g.add_edge(way.nds[i], way.nds[i+1], attr_dict=atts)
+
+        # Only want the largest connected component - sometimes fragments appear
+        # round the edge - so take that.
+        # NB this interface has changed with NetworkX v1.9
+        if StrictVersion(nx.__version__) >= StrictVersion('1.9'):
+            try:
+                g = sorted(nx.connected_component_subgraphs(g), key=len, reverse=True)[0]
+            except IndexError as exc:
+                print "Error - probably because the graph is empty"
+                raise
+        else:
+            g = nx.connected_component_subgraphs(g)[0]
+
+        self.g = g
     
     
-    def build_posdict(self,Data):
-        
-        self.posdict={}
-        
+    # def build_posdict(self,Data):
+    #
+    #     self.posdict = {}
+    #
+    #     for nd in self.g:
+    #         self.posdict[nd]=Data.nodes[nd].lonlat
+
+    def add_node_locations(self, Data):
+        '''
+        Each node gets an attribute added for its geometric position. This is only
+        really useful for plotting.
+        '''
+
         for nd in self.g:
-            self.posdict[nd]=Data.nodes[nd].lonlat
-    
+            try:
+                self.g.node[nd]['pos'] = Data.nodes[nd].lonlat
+            except KeyError:
+                import ipdb; ipdb.set_trace()
+
     
     def save(self,filename):
         f=open(filename,'wb')
@@ -203,10 +218,11 @@ class OSMStreetNet():
         node_kill_list=[]
         edge_add_list=[]
         
-        for v in self.g:
-            node_checker=[x!=v and len(self.g[v][x])==1 for x in self.g[v]]
+        for node_id in self.g.nodes_iter():
+            # all node IDs that are different from this one and that have order 2 (they are only linked to one other node)
+            node_checker = [x != node_id and len(self.g[node_id][x]) == 1 for x in self.g[node_id]]
             if len(node_checker)==2 and all(node_checker):
-                node_kill_list.append(v)
+                node_kill_list.append(node_id)
                 
         nodes_seen=[]
         paths=[]
