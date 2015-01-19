@@ -130,7 +130,7 @@ class OSMStreetNet():
     
     def __init__(self):
         
-        self.g=nx.MultiGraph()
+        self.g = nx.MultiGraph()
         self.posdict={}
     
     def load_from_data(self,Data):
@@ -151,26 +151,28 @@ class OSMStreetNet():
         self.posdict=posdict
     
     
-    def build_network(self,Data):
+    def build_network(self, Data):
         
         g = nx.MultiGraph()
         
-        highways_all = [way for way in Data.ways.values() if 'highway' in way.tags]
+        highways = [way for way in Data.ways.values() if 'highway' in way.tags]
         
-        blacklist=['footway','service']
+        blacklist=['footway', 'service']
         
-        highways = [way for way in highways_all if way.tags['highway'] not in blacklist]
+        highways = [way for way in highways if way.tags['highway'] not in blacklist]
         
         for way in highways:
+
+            atts = {
+                'rdb': False
+            }
+            if 'junction' in way.tags and way.tags['junction'] == 'roundabout':
+                atts['rdb'] = True
+
             for i in range(len(way.nds)-1):
-                atts={}
-                if 'junction' in way.tags:
-                    if way.tags['junction']=='roundabout':
-                        atts['rdb'] = True
-                else:
-                    atts['rdb'] = False
-                atts['poly_line'] = [way.nds[i], way.nds[i+1]]
-                g.add_edge(way.nds[i], way.nds[i+1], attr_dict=atts)
+                # atts['poly_line'] = [way.nds[i], way.nds[i+1]]
+                # atts['node_ids'] = [way.nds[i], way.nds[i+1]]  # old key = 'poly_line'
+                g.add_edge(way.nds[i], way.nds[i+1], key=way.feature_id, attr_dict=atts)
 
         # Only want the largest connected component - sometimes fragments appear
         # round the edge - so take that.
@@ -185,14 +187,6 @@ class OSMStreetNet():
             g = nx.connected_component_subgraphs(g)[0]
 
         self.g = g
-    
-    
-    # def build_posdict(self,Data):
-    #
-    #     self.posdict = {}
-    #
-    #     for nd in self.g:
-    #         self.posdict[nd]=Data.nodes[nd].lonlat
 
     def add_node_locations(self, Data):
         '''
@@ -200,9 +194,9 @@ class OSMStreetNet():
         really useful for plotting.
         '''
 
-        for nd in self.g:
+        for node_id in self.g:
             try:
-                self.g.node[nd]['pos'] = Data.nodes[nd].lonlat
+                self.g.node[node_id]['pos'] = Data.nodes[node_id].lonlat
             except KeyError:
                 import ipdb; ipdb.set_trace()
 
@@ -214,24 +208,119 @@ class OSMStreetNet():
 
     
     def unify_segments(self):
+        """
+        self.g[node_id] returns a dict of neighbours of node with ID node_id
+        :return:
+        """
+
+        node_ids_to_process = []
+        for node_id in self.g.nodes_iter():
+            # node must have two neighbours
+            if len(self.g[node_id]) == 2:
+                # .. and no multiply-defined edges
+                if len(self.g[node_id].values()[0]) == 1 and len(self.g[node_id].values()[1]) == 1:
+                    # this node is part of a string that should be combined
+                    node_ids_to_process.append(node_id)
+
+        # now step back through and process each path separately, keeping track of nodes already seen
+        node_ids_processed = []
+        nodes_to_polyline = {}
+        for node_id in node_ids_to_process:
+            if node_id in node_ids_processed:
+                # if we have already seen this node, move on
+                continue
+            else:
+                node_ids_processed.append(node_id)
+
+            w0, w1 = self.g[node_id]
+            this_path_0 = [w0]
+            this_path_1 = [node_id, w1]
+
+            # stepping 'left'
+            curr_i = w0
+            prev_i = node_id
+            while True:
+                # check whether this is a continuation node...
+                if curr_i not in node_ids_to_process:
+                    break
+                node_ids_processed.append(curr_i)
+                t0, t1 = self.g[curr_i]
+                # find step direction
+                new_i = t0 if t0 != prev_i else t1
+                prev_i = curr_i
+                curr_i = new_i
+                # add next node to the list
+                this_path_0.append(curr_i)
+
+            # stepping 'right'
+            curr_i = w1
+            prev_i = node_id
+            while True:
+                # check whether this is a continuation node...
+                if curr_i not in node_ids_to_process:
+                    # ...no, so this process terminates here
+                    break
+                node_ids_processed.append(curr_i)
+                t0, t1 = self.g[curr_i]
+                # find step direction
+                new_i = t0 if t0 != prev_i else t1
+                prev_i = curr_i
+                curr_i = new_i
+                # add next node to the list
+                this_path_1.append(curr_i)
+
+            # combine the two processes
+            this_path_0.reverse()
+            this_path = this_path_0 + this_path_1
+            nodes_to_polyline[(this_path[0], this_path_1[-1])] = this_path
+
+        # add new edges, merging attributes where possible
+        edges_to_add = []
+        edges_to_delete = []
+        rdbs = {}
+        for (t0, t1), path in nodes_to_polyline.iteritems():
+            path_coords = []
+            for pid in path:
+                path_coords.append(self.g.node[pid]['pos'])
+            a, b = self.g[path[1]].items()
+            rdbs[a[0]] = a[1].values()[0]['rdb']
+            rdbs[b[0]] = b[1].values()[0]['rdb']
+            ls = LineString(path_coords)
+
+            edges_to_add.append((t0, t1, {'linestring': ls}))
+            edges_to_delete.extend([(path[i], path[i+1]) for i in range(len(path) - 1)])
+
         
         node_kill_list=[]
         edge_add_list=[]
         
         for node_id in self.g.nodes_iter():
             # all node IDs that are different from this one and that have order 2 (they are only linked to one other node)
-            node_checker = [x != node_id and len(self.g[node_id][x]) == 1 for x in self.g[node_id]]
-            if len(node_checker)==2 and all(node_checker):
+            node_checker = []
+            for i in self.g[node_id]:
+                if i == node_id:
+                    node_checker.append(False)
+                    import ipdb; ipdb.set_trace()
+                elif len(self.g[node_id][i]) == 1:
+                    node_checker.append(True)
+                else:
+                    node_checker.append(False)
+
+            # node_checker = [x != node_id and len(self.g[node_id][x]) == 1 for x in self.g[node_id]]
+
+            # if this node connects to two other nodes that are not itself...
+            if len(node_checker) == 2 and all(node_checker):
+                # it needs to be consolidated and killed
                 node_kill_list.append(node_id)
-                
-        nodes_seen=[]
-        paths=[]
+
+        nodes_seen = []
+        paths = []
         
         for v in node_kill_list:
             
             if v not in nodes_seen:
                 
-                to_connect=[x for x in self.g[v]]
+                to_connect = [x for x in self.g[v]]  # connecting nodes either side
                 w0=to_connect[0]
                 w1=to_connect[1]
                 
