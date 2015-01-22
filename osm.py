@@ -129,7 +129,8 @@ class OSMData():
 
 class OSMStreetNet():
 
-    srid = 4326
+    input_srid = 4326
+    srid = 27700
 
     def __init__(self, bounding_poly=None):
         '''
@@ -139,6 +140,8 @@ class OSMStreetNet():
         '''
         self.g = nx.MultiGraph()
         self.bounding_poly = bounding_poly
+        self.input_proj = pyproj.Proj(init='epsg:%d' % self.input_srid)
+        self.output_proj = pyproj.Proj(init='epsg:%d' % self.srid)
 
     def load_from_data(self, osmdata):
         
@@ -206,9 +209,9 @@ class OSMStreetNet():
             try:
                 lon, lat = Data.nodes[node_id].lonlat
                 if self.srid is not None:
-                    in_proj = pyproj.Proj(init='epsg:4326')
-                    out_proj = pyproj.Proj(init='epsg:%d' % self.srid)
-                    x, y = pyproj.transform(in_proj, out_proj, lon, lat)
+                    x, y = pyproj.transform(self.input_proj, self.output_proj, lon, lat)
+                else:
+                    x, y = lon, lat
                 self.g.node[node_id]['pos'] = (x, y)
             except KeyError:
                 import ipdb; ipdb.set_trace()
@@ -356,14 +359,8 @@ class OSMStreetNet():
         
         return net_new
 
-
-    
-    # def plot_network_background(self,min_lon,min_lat,max_lon,max_lat,zoom,filename,
-    #                             show_edges=True,show_nodes=False,edge_width=1,
-    #                             node_size=7,edge_col='k',node_col='r'):
-
     def plot_network_background(self, bounding_poly=None,
-                                zoom_level=4,
+                                zoom_level=13,
                                 show_edges=True,
                                 show_nodes=False,
                                 edge_width=1,
@@ -377,70 +374,64 @@ class OSMStreetNet():
             xmin, ymin, xmax, ymax = self.extent
 
 
-        if self.srid:
-            in_proj = pyproj.Proj(init='epsg:%d' % self.srid)
-            out_proj = pyproj.Proj(init='epsg:4326')
-            xmin, ymin = pyproj.transform(in_proj, out_proj, xmin, ymin)
-            xmax, ymax = pyproj.transform(in_proj, out_proj, xmax, ymax)
+        mm_proj = pyproj.Proj(init='epsg:4326')
+
+        # define transformation function to plot edge patches
+        def transform_fun(x, y):
+            locpt = m.locationPoint(
+                Geo.Location(*pyproj.transform(self.output_proj, mm_proj, x, y)[::-1])
+            )
+            return locpt.x, locpt.y
+
+        xmin, ymin = pyproj.transform(self.output_proj, mm_proj, xmin, ymin)
+        xmax, ymax = pyproj.transform(self.output_proj, mm_proj, xmax, ymax)
 
         print xmin, ymin, xmax, ymax
 
-        sw = Geo.Location(xmin, ymin)
-        ne = Geo.Location(xmax, ymax)
+        sw = Geo.Location(ymin, xmin)  # lat, lon
+        ne = Geo.Location(ymax, xmax)  # lat, lon
 
-        # sw = Geo.Location(min_lat,min_lon)
-        # ne = Geo.Location(max_lat,max_lon)
-        
         m = mm.mapByExtentZoom(OpenStreetMap.Provider(), sw, ne, zoom_level)
-        
+
         lower_left = m.locationPoint(sw)
         upper_right = m.locationPoint(ne)
-        
+
         ratio = (lower_left.y-upper_right.y)/(upper_right.x-lower_left.x)
-        
+
         print 'Aspect ratio '+str(ratio)
 
-        fig=plt.figure(figsize=(8,8*ratio))
-        fig.subplots_adjust(left=0,right=1,bottom=0,top=1)
+        fig=plt.figure(figsize=(8, 8 * ratio))
+        fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
         ax=fig.add_subplot(111)
-        
+
         if show_edges:
-            for ep in self.generate_edge_patches():
+            for ep in self.generate_edge_patches(transform_fun=transform_fun):
                 ax.add_patch(ep)
-            # for e in self.g.edges(data=True):
-            #     poly_points=[m.locationPoint(Geo.Location(self.posdict[nd][1],self.posdict[nd][0])) for nd in e[2]['poly_line']]
-            #     bbox_check=[lower_left.x<=p.x<=upper_right.x and upper_right.y<=p.y<=lower_left.y for p in poly_points]
-            #     if any(bbox_check):
-            #         path=Path([(point.x,point.y) for point in poly_points])
-            #         patch = patches.PathPatch(path, facecolor='none', edgecolor=edge_col, lw=edge_width)
-            #         ax.add_patch(patch)
-        
+
         if show_nodes:
-            node_coords = [t[1]['pos'] for t in self.g.nodes(data=True)]
-            if self.srid:
-                node_coords = [pyproj.transform(in_proj, out_proj, *t) for t in node_coords]
-
+            # NB reverse point order
+            node_coords = [pyproj.transform(self.output_proj, mm_proj, *t[1]['pos'])[::-1] for t in self.g.nodes(data=True)]
             node_points = [m.locationPoint(Geo.Location(*t)) for t in node_coords]
+            node_points_bbox = [
+                p for p in node_points if lower_left.x <= p.x <= upper_right.x and upper_right.y <= p.y <= lower_left.y
+            ]
 
-            # node_points=[m.locationPoint(Geo.Location(self.posdict[nd][1],self.posdict[nd][0])) for nd in self.g]
-            node_points_bbox=[
-                p for p in node_points if lower_left.x <= p.x <= upper_right.x and upper_right.y <= p.y <= lower_left.y]
+            x = [point.x for point in node_points_bbox]
+            y = [point.y for point in node_points_bbox]
 
-            x=[point.x for point in node_points_bbox]
-            y=[point.y for point in node_points_bbox]
-            ax.scatter(x,y,c=node_col,s=node_size,zorder=5)
-        
+            ax.scatter(x, y, c=node_col, s=node_size, zorder=5)
+
         ax.set_frame_on(False)
-        
-        ax.set_xlim(lower_left.x,upper_right.x)
-        ax.set_ylim(lower_left.y,upper_right.y)
-        
+
+        ax.set_xlim(lower_left.x, upper_right.x)
+        ax.set_ylim(lower_left.y, upper_right.y)
+
         ax.set_xticks([])
         ax.set_yticks([])
-        
-        map_image=m.draw()
-        
+
+        map_image = m.draw()
         ax.imshow(map_image)
+
         
         # plt.savefig(filename+'.png')
         # plt.savefig(filename+'.pdf')
@@ -453,6 +444,9 @@ class OSMStreetNet():
         Returns a generator that iterates over all edge linestrings.
         This is useful for various spatial operations.
         """
+        if not len(self.g):
+            raise AttributeError("Graph is empty")
+
         for e in self.g.edges_iter(data=True):
             yield e[2]['linestring']
 
@@ -484,11 +478,13 @@ class OSMStreetNet():
         else:
             return self.g.edges(data=True)
 
-    def generate_edge_patches(self, bbox=None, **kwargs):
+    def generate_edge_patches(self, bbox=None, transform_fun=None, **kwargs):
         '''
         Iteratively generate path patches for every visible edge
 
         :param bbox: Optional shapely Polygon defining the visible area.  If not supplied, generate ALL edges
+        :param transform_fun: Optional projection function.  Function takes a pair of coords (x, y) and returns the
+        transformed pair.  If supplied, transform coords before creating patch.
         :param kwargs: dictionary of options passed to PathPatch
         :return: array of type PathPatch for adding to a matplotlib axis.  Optionally, can add edge caps too
         '''
@@ -499,6 +495,12 @@ class OSMStreetNet():
                 #box. This is to avoid creating unnecessary lines which will not
                 #actually be seen.
                 if bbox is None or ls.intersects(bbox):
+                    if transform_fun:
+                        ls = LineString([transform_fun(x, y) for x, y in zip(
+                            ls.xy[0].tolist(),
+                            ls.xy[1].tolist()
+                        )])
+
                     path = Path(ls)
                     res.append(patches.PathPatch(path, facecolor='none', **kwargs))
 
@@ -561,8 +563,6 @@ class OSMStreetNet():
                 node_points = [p for p in node_points if xmin <= p[0] <= xmax and ymin <= p[1] <= ymax]
             x,y = zip(*node_points)
             ax.scatter(x, y, c=node_col, s=node_size, zorder=5)
-
-        ipdb.set_trace()
 
         ax.set_xlim(xmin, xmax)
         ax.set_ylim(ymin, ymax)
@@ -637,4 +637,15 @@ def read_data(filename):
     sax.parse(filename,CurrentHandler)
     CurrentData=OSMData(CurrentHandler.nodes,CurrentHandler.ways,CurrentHandler.relations)
     return CurrentData
+
+
+
+if __name__ == '__main__':
+    from analysis import cad, plotting
+    import numpy as np
+
+    cs = plotting.geodjango_to_shapely(cad.get_camden_region())[0]
+    osmdata = read_data('/home/gabriel/Dropbox/research/data/camden/camden_buffer_100.osm')
+    o = OSMStreetNet(bounding_poly=cs)
+    o.load_from_data(osmdata)
 
