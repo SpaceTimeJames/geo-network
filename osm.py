@@ -142,6 +142,7 @@ class OSMStreetNet():
         self.bounding_poly = bounding_poly
         self.input_proj = pyproj.Proj(init='epsg:%d' % self.input_srid)
         self.output_proj = pyproj.Proj(init='epsg:%d' % self.srid)
+        self.edge_dict = {}  # manual book-keeping of edges
 
     def load_from_data(self, osmdata):
         
@@ -163,6 +164,7 @@ class OSMStreetNet():
     
     def inherit(self, g):
         self.g = g
+        # FIXME: need to inherit edge list too
 
     
     def build_network(self, Data):
@@ -178,6 +180,7 @@ class OSMStreetNet():
         for way in highways:
 
             atts = {
+                'way_fid': way.feature_id,
                 'highway': way.tags['highway']
             }
 
@@ -185,7 +188,8 @@ class OSMStreetNet():
                 atts['junction'] = 'roundabout'
 
             for i in range(len(way.nds)-1):
-                g.add_edge(way.nds[i], way.nds[i+1], key=way.feature_id, attr_dict=atts)
+                g.add_edge(way.nds[i], way.nds[i+1], attr_dict=atts)
+                # g.add_edge(way.nds[i], way.nds[i+1], key=way.feature_id, attr_dict=atts)
 
         # Only want the largest connected component - sometimes fragments appear
         # round the edge - so take that.
@@ -289,13 +293,22 @@ class OSMStreetNet():
             this_path = this_path_0 + this_path_1
             nodes_to_polyline[(this_path[0], this_path_1[-1])] = this_path
 
-        # add new edges, merging attributes where possible
+        # Add new edges, merging attributes where possible.
+        # Path counter keeps track of how many paths link two nodes.  This is important so we can generate
+        # a unique edge key.
         edges_to_add = []
         edges_to_delete = []
+        path_counter = {}
+        import collections
+        path_fid = {}
+        duplicate_linestrings = []
         for (t0, t1), path in nodes_to_polyline.iteritems():
             path_coords = []
+            this_fid = []
             for pid in path:
                 path_coords.append(self.g.node[pid]['pos'])
+                this_fid.extend([reduce(lambda x, y: x + y, [a['way_fid'] for a in t.values()]) for t in self.g[pid].values()])
+            this_fid = '.'.join(list(np.unique(this_fid)))
 
             attr_dict = {}
 
@@ -307,12 +320,35 @@ class OSMStreetNet():
             attr_dict['linestring'] = ls
             attr_dict['length'] = ls.length
 
-            edges_to_add.append((t0, t1, attr_dict))
+            # check that no paths are defined in the reverse direction
+            # TODO: not sure how to deal with these - depends whether it is an un/directed graph
+            if (t1, t0) in path_counter:
+                tmp = t0
+                t0 = t1
+                t1 = tmp
+            if (t0, t1, this_fid) in path_fid:
+                duplicate_linestrings.append((t0, t1, this_fid, ls))
+                duplicate_linestrings.append((t0, t1, this_fid, path_fid[(t0, t1, this_fid)]))
+
+            path_fid[(t0, t1, this_fid)] = ls
+            path_id = path_counter.get((t0, t1), -1) + 1
+            path_counter[(t0, t1)] = path_id
+
+
+            # edge tuple has the format (node_0_id, node_1_id, key, attr_dict)
+            # key is just to distinguish multiple paths between the same pair of nodes.
+            # if the same key is used, the edge is overwritten, so must avoid this.
+            # if no key is issued, it is auto-generated
+            # edges_to_add.append((t0, t1, attr_dict))
+            edges_to_add.append((t0, t1, path_id, attr_dict))
             edges_to_delete.extend([(path[i], path[i+1]) for i in range(len(path) - 1)])
+            # self.edge_dict[]
 
         # add new edges, delete old edges
         self.g.add_edges_from(edges_to_add)
         self.g.remove_edges_from(edges_to_delete)
+
+        self.duplicates = duplicate_linestrings
 
     def add_edge_properties(self):
         '''
