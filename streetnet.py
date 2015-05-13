@@ -19,7 +19,12 @@ import copy
 class NetPoint():
 
     def __init__(self, street_net, edge, node_dist):
-
+        """
+        :param street_net: A pointer to the network on which this point is defined
+        :param edge: An edge ID referring to an edge in street_net
+        :param node_dist: A dictionary containing the distance along this edge from both the positive and negative end
+        The key gives the node ID, the value gives the distance from that end.
+        """
         if not isinstance(street_net, StreetNet):
             raise TypeError("street_net must be an instance of the StreetNet class.")
         self.graph = street_net
@@ -421,7 +426,7 @@ class StreetNet():
         node_dist1=net_point1.node_dist
         node_dist2=net_point2.node_dist
 
-        if fid_1==fid_2:
+        if fid_1==fid_2:  # both points on same edge
 
             dist_diff=node_dist2[n1_1]-node_dist1[n1_1]
 
@@ -718,7 +723,7 @@ class StreetNet():
             closest_edge[2]['orientation_pos']: closest_edge[2]['linestring'].length - da,
         }
 
-        return NetPoint(self, closest_edge, dist_along), snap_distance
+        return NetPoint(self, closest_edge[2]['fid'], dist_along), snap_distance
 
     ### ADDED BY GABS
     @property
