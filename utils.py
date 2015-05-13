@@ -3,7 +3,8 @@ import numpy as np
 from point_process.utils import pairwise_differences_indices
 
 
-def linkages(data_source, max_t, max_d, data_target=None, chunksize=2**18, remove_coincident_pairs=False):
+def network_linkages(data_source, max_t, max_d, data_target=None, chunksize=2**18, remove_coincident_pairs=False):
+    ###TODO: update this for network distances - shouldn't be too difficult
     """
     Compute the indices of datapoints that are within the following tolerances:
     interpoint distance less than max_d
@@ -29,7 +30,6 @@ def linkages(data_source, max_t, max_d, data_target=None, chunksize=2**18, remov
         data_target = data_source
         chunksize = min(chunksize, ndata_source * (ndata_source - 1) / 2)
         idx_i, idx_j = pairwise_differences_indices(ndata_source)
-
 
     link_i = []
     link_j = []

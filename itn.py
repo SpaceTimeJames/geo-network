@@ -23,7 +23,7 @@ Author: Toby Davies
 from shapely.geometry import Point, LineString, Polygon
 import xml.sax as sax
 import datetime
-
+from matplotlib import pyplot as plt
 import networkx as nx
 import cPickle
 
@@ -476,8 +476,9 @@ if __name__ == '__main__':
     from network.geos import NetworkPoint
     from kde.okabe import EqualSplitKernel
 
-
-    ITNFILE = os.path.join(DATA_DIR, 'network_data/itn_sample', 'mastermap-itn_417209_0_brixton_sample.gml')
+    this_dir = os.path.dirname(os.path.realpath(__file__))
+    ITNFILE = os.path.join(this_dir, 'test_data', 'mastermap-itn_417209_0_brixton_sample.gml')
+    # ITNFILE = os.path.join(DATA_DIR, 'network_data/itn_sample', 'mastermap-itn_417209_0_brixton_sample.gml')
 
     # A little demo
 
@@ -489,7 +490,7 @@ if __name__ == '__main__':
     # generate some random points inside camden
     import numpy as np
     xmin, ymin, xmax, ymax = g.extent
-    x_grid, y_grid, edge_locator = g.bin_edges(xmin, xmax, ymin, ymax, 50)
+    grid_edge_idx = g.build_grid_edge_index(xmin, xmax, ymin, ymax, 50)
 
     xs = np.random.rand(100)*(xmax - xmin) + xmin
     ys = np.random.rand(100)*(ymax - ymin) + ymin
@@ -520,11 +521,12 @@ if __name__ == '__main__':
 
     # Add these points as the kernel sources
     for i, t in enumerate(test_points):
-        c, d, _ = g.closest_segments_euclidean(t[0], t[1], x_grid, y_grid, edge_locator)
-        closest_edge.append(c)
-        dist_along.append(d)
-        network_points.append(NetworkPoint(g.g, **d))
-        kde_source_points['point%d' % i] = (c, d)
+        net_point = g.closest_edges_euclidean(t[0], t[1], grid_edge_idx)
+        network_points.append(net_point)
+        # closest_edge.append(c)
+        # dist_along.append(d)
+        # network_points.append(NetworkPoint(g.g, **d))
+        kde_source_points['point%d' % i] = net_point
 
 
     #Initialise the kernel
