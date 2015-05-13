@@ -32,15 +32,10 @@ class NetPoint():
         if not self.graph is other.graph:
             raise AttributeError("The two points are defined on different graphs")
 
-    def __add__(self, other):
-        # NetPoint + NetPoint -> NetPath
+    def __sub__(self, other):
+        # NetPoint - NetPoint -> NetPath
         self.test_compatible(other)
         return self.graph.path_undirected(self, other)
-
-    def __sub__(self, other):
-        # NetPoint - NetPoint -> NetPath.length (i.e. network distance between the points)
-        self.test_compatible(other)
-        return self.graph.path_undirected(self, other).length
 
 
 class NetPath():
@@ -333,19 +328,18 @@ class StreetNet():
         edge_index=defaultdict(list)
 
         #Loop edges
-        for n1,n2,fid,attr in self.g.edges(data=True,keys=True):
-            #Produce shapely polyline
-            # edge_line=LineString(attr['polyline'])
+        for n1, n2, fid, attr in self.g.edges(data=True, keys=True):
+
             edge_line = attr['linestring']
 
             #Get bounding box of polyline
-            (bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y)=edge_line.bounds
+            (bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y) = edge_line.bounds
 
             #Bin bbox extremities
-            bbox_min_x_loc=bs.bisect_left(x_grid,bbox_min_x)
-            bbox_max_x_loc=bs.bisect_left(x_grid,bbox_max_x)
-            bbox_min_y_loc=bs.bisect_left(y_grid,bbox_min_y)
-            bbox_max_y_loc=bs.bisect_left(y_grid,bbox_max_y)
+            bbox_min_x_loc = bs.bisect_left(x_grid, bbox_min_x)
+            bbox_max_x_loc = bs.bisect_left(x_grid, bbox_max_x)
+            bbox_min_y_loc = bs.bisect_left(y_grid, bbox_min_y)
+            bbox_max_y_loc = bs.bisect_left(y_grid, bbox_max_y)
 
             #Go through every cell covered by this bbox, augmenting lookup
             for i in range(bbox_min_x_loc,bbox_max_x_loc+1):
