@@ -3,6 +3,7 @@ from validation import hotspot
 from data.models import NetworkSpaceTimeData, NetworkData, DataArray
 from point_process.utils import linkages
 from scipy import sparse
+import numpy as np
 
 class NetworkProMap(hotspot.STKernelBase):
 

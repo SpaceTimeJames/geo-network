@@ -16,6 +16,29 @@ from matplotlib.colorbar import ColorbarBase
 import copy
 
 
+class Edge(object):
+
+    def __init__(self, street_net, orientation_pos=None, orientation_neg=None, fid=None, **kwargs):
+        self.graph = street_net
+        self.node_pos = orientation_pos
+        self.node_neg = orientation_neg
+        self.edge_id = fid
+
+    @property
+    def attrs(self):
+        return self.graph.g.edge[self.node_pos][self.node_neg][self.edge_id]
+
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            raise TypeError("Can only compare Edge with another Edge.")
+        return (
+            self.graph is other.graph and
+            self.node_neg == other.node_neg and
+            self.node_pos == other.node_pos and
+            self.edge_id == other.edge_id
+        )
+
+
 class NetPoint():
 
     def __init__(self, street_net, edge, node_dist):
@@ -293,7 +316,7 @@ class StreetNet():
             cPickle.dump(self, f)
 
 
-    def build_grid_edge_index(self,min_x,max_x,min_y,max_y,gridsize):
+    def build_grid_edge_index(self, gridsize, extent=None):
         '''
         This is a helper function really, to be used in conjunction with snapping
         operations. This might be a completely stupid way to do it, but as a naive
@@ -324,6 +347,7 @@ class StreetNet():
         The reason for pre-computing this is that it may be necessary to use it
         many times as the argument to other functions.
         '''
+        min_x, min_y, max_x, max_y = extent or self.extent
 
         #Set up grids and arrays
         x_grid=sp.arange(min_x,max_x,gridsize)
@@ -411,9 +435,10 @@ class StreetNet():
             node_dist[self.g[n1][n2][fid]['orientation_neg']]=polyline.project(point)
             node_dist[self.g[n1][n2][fid]['orientation_pos']]=polyline.length-polyline.project(point)
 
-            net_point=NetPoint(self,(n1,n2,fid),node_dist)
+            edge = Edge(self, **self.g[n1][n2][fid])
+            net_point = NetPoint(self, edge, node_dist)
 
-            closest_edges.append((net_point,snap_distance))
+            closest_edges.append((net_point, snap_distance))
 
         return closest_edges
 
@@ -692,6 +717,10 @@ class StreetNet():
             return self.g.edges(data=True)
 
     ### ADDED BY GABS
+    def edge(self, node1, node2, edge_id):
+        return self.g.edge[node1, node2, edge_id]
+
+    ### ADDED BY GABS
     def lines_iter(self):
         """
         Returns a generator that iterates over all edge linestrings.
@@ -714,16 +743,19 @@ class StreetNet():
             return None
 
         snap_distances = [x.distance(pt) for x in self.lines_iter()]
-        snap_distance = min(snap_distances)
-        closest_edge = edges[snap_distances.index(snap_distance)]
+        idx = np.argmin(snap_distances)
+        snap_distance = snap_distances[idx]
+        closest_edge = edges[idx]
 
         da = closest_edge[2]['linestring'].project(pt)
         dist_along={
             closest_edge[2]['orientation_neg']: da,
             closest_edge[2]['orientation_pos']: closest_edge[2]['linestring'].length - da,
         }
+        # edge = (closest_edge[0], closest_edge[1], closest_edge[2]['fid'])
+        edge = Edge(self, **closest_edge[2])
 
-        return NetPoint(self, closest_edge[2]['fid'], dist_along), snap_distance
+        return NetPoint(self, edge, dist_along), snap_distance
 
     ### ADDED BY GABS
     @property
@@ -746,9 +778,9 @@ class StreetNet():
         return xmin, ymin, xmax, ymax
 
     ### ADDED BY GABS
-    def snapped_point_to_xy(self, closest_edge, dist_along):
+    def network_point_to_xy(self, net_point):
         ## TODO: check the order of linestring definition (neg to pos?)
-        ls = closest_edge[2]['linestring']
-        pos_fid = closest_edge[2]['orientation_neg']
-        pt = ls.interpolate(dist_along[pos_fid])
+        ls = net_point.edge.attrs['linestring']
+        pt = ls.interpolate(net_point.node_dist[net_point.edge.node_neg])
+        # pt = ls.interpolate(net_point.node_dist[net_point.edge.node_pos])
         return pt.x, pt.y
