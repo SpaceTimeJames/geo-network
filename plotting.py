@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.collections as mcoll
 import matplotlib.path as mpath
+from streetnet import Edge, NetPoint, NetPath
 
 def colorline(
     x, y, z=None, cmap=plt.get_cmap('copper'), norm=None,
@@ -56,7 +57,7 @@ def network_point_coverage(net, dx=None, include_nodes=True):
     :param dx: Optional spacing between points, otherwise this is automatically selected
     :param include_nodes: If True, points are added at node locations too
     :return: (i) (E x N(i) x 2) array of Cartesian points, E is the # edges, N(i) is the # points on edge i
-             (ii) E x N(i) array of (closest_edge, dist_along) tuples)
+             (ii) E x N(i) array of NetPoints)
     TODO: switch to using NetworkPoint objects
     '''
 
@@ -66,27 +67,28 @@ def network_point_coverage(net, dx=None, include_nodes=True):
     ## temp set dx with a constant
     xy = []
     cd = []
-    dx = dx or 1
-    for e in net.edges(data=True):
+    dx = dx or 1.
+    for e in net.edges():
         this_xy = []
         this_cd = []
-        interp_lengths = np.arange(eps, e[2]['length'] - eps, dx)
-        interp_lengths = np.concatenate((interp_lengths, [e[2]['length'] - eps]))
+        n_pt = int(np.math.ceil(e[2]['length'] / float(dx)))
+        interp_lengths = np.linspace(eps, e[2]['length'] - eps, n_pt)
         # interpolate along linestring
         ls = e[2]['linestring']
         interp_pts = [ls.interpolate(t) for t in interp_lengths]
 
         for i in range(interp_lengths.size):
             this_xy.append((interp_pts[i].x, interp_pts[i].y))
-            d = {
+            this_edge = Edge(net, **e[2])
+            node_dist = {
                 e[2]['orientation_neg']: interp_lengths[i],
                 e[2]['orientation_pos']: e[2]['length'] - interp_lengths[i],
             }
-            this_cd.append((e, d))
-        xy.append(this_xy)
-        cd.append(this_cd)
+            this_cd.append(NetPoint(net, this_edge, node_dist))
+        xy.extend(this_xy)
+        cd.extend(this_cd)
 
-    return xy, cd
+    return np.array(xy), cd
 
 
 if __name__ == "__main__":

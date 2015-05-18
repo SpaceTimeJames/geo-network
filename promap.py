@@ -33,3 +33,4 @@ class NetworkProMap(hotspot.STKernelBase):
         m[tt < 0] = 0.
 
         return np.array(m.sum(axis=0).flat)
+

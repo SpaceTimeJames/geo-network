@@ -7,6 +7,7 @@ import unittest
 import settings
 import numpy as np
 from matplotlib import pyplot as plt
+from point_process import utils
 
 class TestNetworkData(unittest.TestCase):
 
@@ -70,12 +71,13 @@ class TestNetworkData(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    # this_dir = os.path.join(settings.DATA_DIR, 'network_data')
+    this_dir = os.path.join(settings.DATA_DIR, 'network_data')
     # IN_FILE = os.path.join(this_dir, 'mastermap-itn_544003_0_camden_buff2000.gml')
+    IN_FILE = os.path.join(this_dir, 'mastermap-itn_417209_0_brixton_sample.gml')
 
     # test data is in a directory in the same path as this module called 'test_data'
-    this_dir = os.path.dirname(os.path.realpath(__file__))
-    IN_FILE = os.path.join(this_dir, 'test_data', 'mastermap-itn_417209_0_brixton_sample.gml')
+    # this_dir = os.path.dirname(os.path.realpath(__file__))
+    # IN_FILE = os.path.join(this_dir, 'test_data', 'mastermap-itn_417209_0_brixton_sample.gml')
 
     # usual loading procedure
 
@@ -147,5 +149,10 @@ if __name__ == "__main__":
     # highlight failed points (where closest_edges_euclidean didn't find any snapped point) in black circles
     [ax.plot(x_pre[i], y_pre[i], marker='o', markersize=20, c='k', fillstyle='none') for i in fail_idx]
 
+    # glue the network point array together with a time dimension - just take time at uniform intervals on [0, 1]
+    st_net_point_array = models.NetworkSpaceTimeData(
+        zip(np.linspace(0, 1, num_pts), net_points)
+    )
 
-
+    # compute linkages at a max delta t and delta d
+    # i, j = utils.linkages(st_net_point_array, max_t=1.0, max_d=300.)

@@ -34,3 +34,6 @@ def create_points(n=50):
         tmp.transform(3857)
         sql = """INSERT INTO crimes (location) VALUES (ST_SetSRID(ST_MakePoint(%f, %f), 3857));""" % tmp.coords
         cursor.execute(sql)
+
+if __name__ == "__main__":
+    pass

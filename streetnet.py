@@ -54,16 +54,32 @@ class NetPoint():
         self.edge = edge
         self.node_dist = node_dist
 
+    @property
+    def cartesian_coords(self):
+        return self.graph.network_point_to_xy(self)
+
     def test_compatible(self, other):
         if not isinstance(other, NetPoint):
             raise TypeError("Both objects must be an instance of the StreetNet class.")
         if not self.graph is other.graph:
             raise AttributeError("The two points are defined on different graphs")
 
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            raise TypeError("Can only compare NetPoint with another NetPoint.")
+        return (
+            self.graph is other.graph and
+            self.edge == other.edge and
+            self.node_dist == other.node_dist
+        )
+
     def __sub__(self, other):
         # NetPoint - NetPoint -> NetPath
         self.test_compatible(other)
-        return self.graph.path_undirected(self, other)
+        try:
+            return self.graph.path_undirected(self, other)
+        except ValueError:
+            import ipdb; ipdb.set_trace()
 
 
 class NetPath():
@@ -445,8 +461,16 @@ class StreetNet():
 
     def path_undirected(self,net_point1,net_point2):
 
-        n1_1,n2_1,fid_1=net_point1.edge
-        n1_2,n2_2,fid_2=net_point2.edge
+        n1_1 = net_point1.edge.node_neg
+        n2_1 = net_point1.edge.node_pos
+        fid_1 = net_point1.edge.edge_id
+
+        n1_2 = net_point2.edge.node_neg
+        n2_2 = net_point2.edge.node_pos
+        fid_2 = net_point2.edge.edge_id
+
+        # n1_1,n2_1,fid_1=net_point1.edge
+        # n1_2,n2_2,fid_2=net_point2.edge
 
         node_dist1=net_point1.node_dist
         node_dist2=net_point2.node_dist
@@ -525,8 +549,16 @@ class StreetNet():
 
     def path_directed(self,net_point1,net_point2):
 
-        n1_1,n2_1,fid_1=net_point1.edge
-        n1_2,n2_2,fid_2=net_point2.edge
+        n1_1 = net_point1.edge.node_neg
+        n2_1 = net_point1.edge.node_pos
+        fid_1 = net_point1.edge.edge_id
+
+        n1_2 = net_point2.edge.node_neg
+        n2_2 = net_point2.edge.node_pos
+        fid_2 = net_point2.edge.edge_id
+
+        # n1_1,n2_1,fid_1=net_point1.edge
+        # n1_2,n2_2,fid_2=net_point2.edge
 
         node_dist1=net_point1.node_dist
         node_dist2=net_point2.node_dist
