@@ -3,6 +3,8 @@ import numpy as np
 from point_process.utils import linkages, linkage_func_separable
 from data.models import CartesianSpaceTimeData
 
+
+#TODO: update this to use a function too, then implement that in hotspot.STNetworkBowers
 def network_linkages(data_source_net,
                      max_t,
                      max_d,
