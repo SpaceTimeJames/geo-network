@@ -129,21 +129,14 @@ class OSMStreetNet(StreetNet):
     srid = 27700
     
     
-    def build_network(self,Data):
+    def build_network(self,data):
         
-        self.input_proj = pyproj.Proj(init='epsg:%d' % self.input_srid)
+        self.input_proj = pyproj.Proj(init='epsg:4326')
         self.output_proj = pyproj.Proj(init='epsg:%d' % self.srid)
         
-        self.build_raw_graph(Data)
-        self.build_posdict(Data)
-        self.unify_segments()
-    
-    
-    def build_raw_graph(self, Data):
+        g_raw = nx.MultiGraph()
         
-        g = nx.MultiGraph()
-        
-        highways = [way for way in Data.ways.values() if 'highway' in way.tags]
+        highways = [way for way in data.ways.values() if 'highway' in way.tags]
         
         blacklist=['footway', 'service']
         
@@ -151,18 +144,52 @@ class OSMStreetNet(StreetNet):
         
         for way in highways:
 
+            for i in xrange(len(way.nds)-1):
+                g_raw.add_edge(way.nds[i], way.nds[i+1])
+        
+        for v in g_raw:
+            if self.srid is not None:
+                g_raw.node[v]['loc']=pyproj.transform(self.input_proj, self.output_proj, *data.nodes[v].lonlat)
+            else:
+                g_raw.node[v]['loc']=data.nodes[v].lonlat
+            
+        g = nx.MultiGraph()
+        
+        for way in highways:
+            
             atts = {
-                'way_fid': way.feature_id,
+                'fid': way.feature_id,
                 'highway': way.tags['highway']
             }
 
             if 'junction' in way.tags and way.tags['junction'] == 'roundabout':
                 atts['junction'] = 'roundabout'
-
-            for i in range(len(way.nds)-1):
-                g.add_edge(way.nds[i], way.nds[i+1], attr_dict=atts)
-                # g.add_edge(way.nds[i], way.nds[i+1], key=way.feature_id, attr_dict=atts)
-
+            
+            current_edge_nds=[way.nds[0]]
+            
+            for nd in way.nds[1:]:
+                current_edge_nds.append(nd)
+                if not (len(g_raw[nd])==2 and all([len(g_raw[nd][x])==1 for x in g_raw[nd]])):
+                    polyline = [g_raw.node[v]['loc'] for v in current_edge_nds]
+                    atts['linestring'] = LineString(polyline)
+                    atts['length'] = atts['linestring'].length
+                    atts['orientation_neg']=current_edge_nds[0]
+                    atts['orientation_pos']=current_edge_nds[-1]
+                    
+                    g.add_edge(current_edge_nds[0],current_edge_nds[-1],attr_dict=atts)
+                    
+                    current_edge_nds=[nd]
+                
+            if len(current_edge_nds)>1:
+                
+                polyline = [g_raw.node[v]['loc'] for v in current_edge_nds]
+                atts['linestring'] = LineString(polyline)
+                atts['length'] = atts['linestring'].length
+                atts['orientation_neg']=current_edge_nds[0]
+                atts['orientation_pos']=current_edge_nds[-1]
+                
+                g.add_edge(current_edge_nds[0],current_edge_nds[-1],attr_dict=atts)
+                
         # Only want the largest connected component - sometimes fragments appear
         # round the edge - so take that.
         # NB this interface has changed with NetworkX v1.9
@@ -178,173 +205,26 @@ class OSMStreetNet(StreetNet):
         self.g = g
 
     
-    def build_posdict(self, Data):
+    def build_posdict(self, data):
         '''
         Each node gets an attribute added for its geometric position.
         '''
         for node_id in self.g:
             try:
-                lon, lat = Data.nodes[node_id].lonlat
+                lon, lat = data.nodes[node_id].lonlat
                 if self.srid is not None:
                     x, y = pyproj.transform(self.input_proj, self.output_proj, lon, lat)
                 else:
                     x, y = lon, lat
-                self.g.node[node_id]['pos'] = (x, y)
+                self.g.node[node_id]['loc'] = (x, y)
             except KeyError:
                 import ipdb; ipdb.set_trace()
 
     
-    def unify_segments(self):
-        """
-        self.g[node_id] returns a dict of neighbours of node with ID node_id
-        :return:
-        """
-
-        node_ids_to_process = []
-        for node_id in self.g.nodes_iter():
-            # node must have two neighbours
-            if len(self.g[node_id]) == 2:
-                # .. and no multiply-defined edges
-                if all([len(self.g[node_id][x])==1 for x in self.g[node_id]]):
-#                if len(self.g[node_id].values()[0]) == 1 and len(self.g[node_id].values()[1]) == 1:
-                    # this node is part of a string that should be combined
-                    node_ids_to_process.append(node_id)
-
-        # now step back through and process each path separately, keeping track of nodes already seen
-        node_ids_processed = []
-        nodes_to_polyline = {}
-        for node_id in node_ids_to_process:
-            if node_id in node_ids_processed:
-                # if we have already seen this node, move on
-                continue
-            else:
-                node_ids_processed.append(node_id)
-
-            w0, w1 = self.g[node_id]
-            this_path_0 = [w0]
-            this_path_1 = [node_id, w1]
-
-            # stepping 'left'
-            curr_i = w0
-            prev_i = node_id
-            while True:
-                # check whether this is a continuation node...
-                if curr_i not in node_ids_to_process:
-                    break
-                node_ids_processed.append(curr_i)
-                t0, t1 = self.g[curr_i]
-                # find step direction
-                new_i = t0 if t0 != prev_i else t1
-                prev_i = curr_i
-                curr_i = new_i
-                # add next node to the list
-                this_path_0.append(curr_i)
-
-            # stepping 'right'
-            curr_i = w1
-            prev_i = node_id
-            while True:
-                # check whether this is a continuation node...
-                if curr_i not in node_ids_to_process:
-                    # ...no, so this process terminates here
-                    break
-                node_ids_processed.append(curr_i)
-                t0, t1 = self.g[curr_i]
-                # find step direction
-                new_i = t0 if t0 != prev_i else t1
-                prev_i = curr_i
-                curr_i = new_i
-                # add next node to the list
-                this_path_1.append(curr_i)
-
-            # combine the two processes
-            this_path_0.reverse()
-            this_path = this_path_0 + this_path_1
-            nodes_to_polyline[(this_path[0], this_path[-1])] = this_path
-
-        # Add new edges, merging attributes where possible.
-        # Path counter keeps track of how many paths link two nodes.  This is important so we can generate
-        # a unique edge key.
-        edges_to_add = []
-        edges_to_delete = []
-        path_counter = {}
-        import collections
-        path_fid = {}
-        duplicate_linestrings = []
-        for (t0, t1), path in nodes_to_polyline.iteritems():
-            path_coords = []
-            this_fid = []
-            for pid in path:
-                path_coords.append(self.g.node[pid]['pos'])
-                this_fid.extend([reduce(lambda x, y: x + y, [a['way_fid'] for a in t.values()]) for t in self.g[pid].values()])
-            this_fid = '.'.join(list(np.unique(this_fid)))
-
-            attr_dict = {}
-
-            if any([t.values()[0].get('junction') == 'roundabout' for t in self.g[path[1]].values()]) \
-                or any([t.values()[0].get('junction') == 'roundabout' for t in self.g[path[-2]].values()]):
-                    attr_dict['junction'] = 'roundabout'
-
-            ls = LineString(path_coords)
-            attr_dict['linestring'] = ls
-            attr_dict['length'] = ls.length
-            attr_dict['fid']=this_fid
-            attr_dict['orientation_neg']=t0
-            attr_dict['orientation_pos']=t1
-            
-
-            # check that no paths are defined in the reverse direction
-            # TODO: not sure how to deal with these - depends whether it is an un/directed graph
-            if (t1, t0) in path_counter:
-                t0, t1 = t1,t0
-            if (t0, t1, this_fid) in path_fid:
-                duplicate_linestrings.append((t0, t1, this_fid, ls))
-                duplicate_linestrings.append((t0, t1, this_fid, path_fid[(t0, t1, this_fid)]))
-
-            path_fid[(t0, t1, this_fid)] = ls
-            path_id = path_counter.get((t0, t1), -1) + 1
-            path_counter[(t0, t1)] = path_id
-
-
-            # edge tuple has the format (node_0_id, node_1_id, key, attr_dict)
-            # key is just to distinguish multiple paths between the same pair of nodes.
-            # if the same key is used, the edge is overwritten, so must avoid this.
-            # if no key is issued, it is auto-generated
-            # edges_to_add.append((t0, t1, attr_dict))
-            edges_to_add.append((t0, t1, path_id, attr_dict))
-            edges_to_delete.extend([(path[i], path[i+1]) for i in range(len(path) - 1)])
-            # self.edge_dict[]
-
-        # add new edges, delete old edges
-#        self.g.remove_nodes_from(node_ids_processed)
-        self.g.add_edges_from(edges_to_add)
-        self.g.remove_edges_from(edges_to_delete)
-
-        self.duplicates = duplicate_linestrings
-
     def build_routing_network(self):
         pass
     
     
-    def add_edge_properties(self):
-        '''
-        Add linestrings and distance values to any edges that do not have these properties already
-        '''
-        for e in self.g.edges(data=True):
-            if 'linestring' not in e[2]:
-                ls = LineString([
-                    self.g.node[e[0]]['pos'],
-                    self.g.node[e[1]]['pos'],
-                ])
-                e[2]['linestring'] = ls
-                e[2]['length'] = ls.length
-    
-#    def assign_indices(self):
-#        ind_counter=0
-#        for e in self.g.edges(data=True):
-#            e[2]['ind']=ind_counter
-#            ind_counter+=1
-#
 #    def within_boundary(self, poly):
 #        # poly is a Shapely polygon defining the boundary
 #        # NB the coordinates must be in the same projection as this network - they are NOT checked
@@ -655,10 +535,29 @@ def read_data(filename):
 if __name__ == '__main__':
     import os
 
-#    cs = plotting.geodjango_to_shapely(cad.get_camden_region())[0]
     this_dir = os.path.dirname(os.path.realpath(__file__))
     OSMFILE = os.path.join(this_dir, 'test_data', 'camden_fragment.osm')
+#    OSMFILE = '/Users/tobydavies/osm_data_samples/camden_full.osm'
     osmdata = read_data(OSMFILE)
     o = OSMStreetNet()
     o.load_from_data(osmdata)
+    
+    min_x, min_y, max_x, max_y = o.extent
+    
+    ratio=(max_y-min_y)/(max_x-min_x)
+    
+    min_lon=-0.22
+    max_lon=-0.10
+    min_lat=51.505
+    max_lat=51.58
+    
+    fig=plt.figure(figsize=(8,8*ratio))
+    fig.subplots_adjust(left=0.01,right=0.99,bottom=0.01,top=0.99)
+    ax=fig.add_subplot(111)
+    
+    o.plot_network(show_nodes=True)
+    
+    
+    
+    
 
