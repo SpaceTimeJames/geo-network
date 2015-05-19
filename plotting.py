@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.collections as mcoll
 import matplotlib.path as mpath
 from streetnet import Edge, NetPoint, NetPath
+from data.models import NetworkData
 
 def colorline(
     x, y, z=None, cmap=plt.get_cmap('copper'), norm=None,
@@ -88,7 +89,7 @@ def network_point_coverage(net, dx=None, include_nodes=True):
         xy.extend(this_xy)
         cd.extend(this_cd)
 
-    return np.array(xy), cd
+    return np.array(xy), NetworkData(cd)
 
 
 if __name__ == "__main__":

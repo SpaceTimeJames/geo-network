@@ -7,7 +7,9 @@ import unittest
 import settings
 import numpy as np
 from matplotlib import pyplot as plt
-from point_process import utils
+from utils import network_linkages
+from validation import hotspot
+import plotting
 
 class TestNetworkData(unittest.TestCase):
 
@@ -71,26 +73,37 @@ class TestNetworkData(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    this_dir = os.path.join(settings.DATA_DIR, 'network_data')
-    # IN_FILE = os.path.join(this_dir, 'mastermap-itn_544003_0_camden_buff2000.gml')
-    IN_FILE = os.path.join(this_dir, 'mastermap-itn_417209_0_brixton_sample.gml')
+    b_plot = False
 
-    # test data is in a directory in the same path as this module called 'test_data'
-    # this_dir = os.path.dirname(os.path.realpath(__file__))
-    # IN_FILE = os.path.join(this_dir, 'test_data', 'mastermap-itn_417209_0_brixton_sample.gml')
+    # mini test dataset
+    # test dataset is in a directory in the same path as this module called 'test_data'
+    this_dir = os.path.dirname(os.path.realpath(__file__))
+    IN_FILE = os.path.join(this_dir, 'test_data', 'mastermap-itn_417209_0_brixton_sample.gml')
 
-    # usual loading procedure
-
+    # load from raw data
     test_data = read_gml(IN_FILE)
-    itn_net = ITNStreetNet()
-    itn_net.load_from_data(test_data)
+    itn_net = ITNStreetNet.from_data_structure(test_data)
+
+    # buffered Camden dataset
+    # test dataset is in a directory in the data directory called 'network_data'
+    # this_dir = os.path.join(settings.DATA_DIR, 'network_data')
+    # IN_FILE = os.path.join(this_dir, 'mastermap-itn_544003_0_camden_buff2000.gml')
+
+    # load from raw data
+    # test_data = read_gml(IN_FILE)
+    # itn_net = ITNStreetNet.from_data_structure(test_data)
+
+    # from pickle
+    # this_dir = os.path.dirname(os.path.realpath(__file__))
+    # IN_FILE = os.path.join(this_dir, 'test_data', 'mastermap-itn_544003_0_camden_buff2000.pickle')
+    # itn_net = ITNStreetNet.from_pickle(IN_FILE)
 
     # get the spatial extent of the network
 
     xmin, ymin, xmax, ymax = itn_net.extent
 
     # lay down some random points within that box
-    num_pts = 50
+    num_pts = 100
 
     x_pts = np.random.rand(num_pts) * (xmax - xmin) + xmin
     y_pts = np.random.rand(num_pts) * (ymax - ymin) + ymin
@@ -139,15 +152,17 @@ if __name__ == "__main__":
     x_pre, y_pre = xy.separate
     x_post, y_post = xy_post_snap.separate
 
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    itn_net.plot_network(ax=ax, edge_width=7, edge_inner_col='w')
-    ax.plot(x_pre, y_pre, 'ro')
-    ax.plot(x_post, y_post, 'bo')
-    [ax.plot([x_pre[i], x_post[i]], [y_pre[i], y_post[i]], 'k-') for i in range(xy.ndata)]
+    if b_plot:
 
-    # highlight failed points (where closest_edges_euclidean didn't find any snapped point) in black circles
-    [ax.plot(x_pre[i], y_pre[i], marker='o', markersize=20, c='k', fillstyle='none') for i in fail_idx]
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        itn_net.plot_network(ax=ax, edge_width=7, edge_inner_col='w')
+        ax.plot(x_pre, y_pre, 'ro')
+        ax.plot(x_post, y_post, 'bo')
+        [ax.plot([x_pre[i], x_post[i]], [y_pre[i], y_post[i]], 'k-') for i in range(xy.ndata)]
+
+        # highlight failed points (where closest_edges_euclidean didn't find any snapped point) in black circles
+        [ax.plot(x_pre[i], y_pre[i], marker='o', markersize=20, c='k', fillstyle='none') for i in fail_idx]
 
     # glue the network point array together with a time dimension - just take time at uniform intervals on [0, 1]
     st_net_point_array = models.NetworkSpaceTimeData(
@@ -155,4 +170,25 @@ if __name__ == "__main__":
     )
 
     # compute linkages at a max delta t and delta d
-    # i, j = utils.linkages(st_net_point_array, max_t=1.0, max_d=300.)
+    # i, j = network_linkages(st_net_point_array, max_t=1.0, max_d=5000.)
+
+    # create instance of Bowers ProMap network kernel
+    h = hotspot.STNetworkBowers(0.3, 2000)
+
+    # bind it to data
+    h.train(st_net_point_array)
+
+    # get a roughly even coverage of points across the network
+    xy_points, net_points = plotting.network_point_coverage(itn_net, dx=10)
+
+    # make a 'prediction' for time 1.1
+    st_net_prediction_array = models.DataArray(
+        np.ones(net_points.ndata) * 1.1
+    ).adddim(net_points, type=models.NetworkSpaceTimeData)
+
+    z = h.predict(st_net_prediction_array)
+
+    if b_plot:
+        plt.figure()
+        itn_net.plot_network(edge_width=8, edge_inner_col='w')
+        plt.scatter(xy_points[:, 0], xy_points[:,1], c=z, cmap='Reds', vmax=0.001, s=50, edgecolor='none', zorder=3)

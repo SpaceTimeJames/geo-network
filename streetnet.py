@@ -15,7 +15,6 @@ from matplotlib.colors import Normalize
 from matplotlib.colorbar import ColorbarBase
 import copy
 
-
 class Edge(object):
 
     def __init__(self, street_net, orientation_pos=None, orientation_neg=None, fid=None, **kwargs):
@@ -29,8 +28,9 @@ class Edge(object):
         return self.graph.g.edge[self.node_pos][self.node_neg][self.edge_id]
 
     def __eq__(self, other):
-        if not isinstance(other, self.__class__):
-            raise TypeError("Can only compare Edge with another Edge.")
+        # FIXME: this fails due to different import path(?)
+        # if not isinstance(other, self.__class__):
+        #     raise TypeError("Can only compare Edge with another Edge.")
         return (
             self.graph is other.graph and
             self.node_neg == other.node_neg and
@@ -39,7 +39,7 @@ class Edge(object):
         )
 
 
-class NetPoint():
+class NetPoint(object):
 
     def __init__(self, street_net, edge, node_dist):
         """
@@ -48,8 +48,9 @@ class NetPoint():
         :param node_dist: A dictionary containing the distance along this edge from both the positive and negative end
         The key gives the node ID, the value gives the distance from that end.
         """
-        if not isinstance(street_net, StreetNet):
-            raise TypeError("street_net must be an instance of the StreetNet class.")
+        # FIXME: this fails due to different import path(?)
+        # if not isinstance(street_net, StreetNet):
+        #     raise TypeError("street_net must be an instance of the StreetNet class.")
         self.graph = street_net
         self.edge = edge
         self.node_dist = node_dist
@@ -59,8 +60,9 @@ class NetPoint():
         return self.graph.network_point_to_xy(self)
 
     def test_compatible(self, other):
-        if not isinstance(other, NetPoint):
-            raise TypeError("Both objects must be an instance of the StreetNet class.")
+        # FIXME: this checking fails due to different import paths
+        # if not isinstance(other, NetPoint):
+        #     raise TypeError("Both objects must be an instance of the StreetNet class.")
         if not self.graph is other.graph:
             raise AttributeError("The two points are defined on different graphs")
 
@@ -77,12 +79,15 @@ class NetPoint():
         # NetPoint - NetPoint -> NetPath
         self.test_compatible(other)
         try:
-            return self.graph.path_undirected(self, other)
+            if self.graph.directed:
+                return self.graph.path_directed(self, other)
+            else:
+                return self.graph.path_undirected(self, other)
         except ValueError:
             import ipdb; ipdb.set_trace()
 
 
-class NetPath():
+class NetPath(object):
 
     def __init__(self, start, end, edges, distances, nodes):
 
@@ -103,7 +108,7 @@ class NetPath():
         return sum(self.distances)
 
 
-class GridEdgeIndex():
+class GridEdgeIndex(object):
 
     def __init__(self, x_grid, y_grid, edge_index):
 
@@ -112,7 +117,7 @@ class GridEdgeIndex():
         self.edge_index = edge_index
 
 
-class StreetNet():
+class StreetNet(object):
 
     '''
     Main street network base (virtual) class.
@@ -144,15 +149,37 @@ class StreetNet():
     and bloated.
     '''
 
-    def __init__(self):
+    def __init__(self, routing='undirected'):
         '''
         This just initialises a fresh empty network in each new class. Will be
         overwritten but just ensures that stuff won't break.
+        :param routing: Defines the behaviour upon subtracting two NetPoints
         '''
 
         self.g = nx.MultiGraph()
         self.g_routing = nx.MultiDiGraph()
+        self.directed = routing.lower() == 'directed'
 
+
+    @classmethod
+    def from_data_structure(cls, data):
+        obj = cls()
+        print 'Building the network'
+        obj.build_network(data)
+
+        print 'Building position dictionary'
+        obj.build_posdict(data)
+
+        print 'Building routing network'
+        obj.build_routing_network()
+
+        return obj
+
+    @classmethod
+    def from_pickle(cls, filename):
+        with open(filename, 'r') as f:
+            obj = cPickle.load(f)
+        return obj
 
     def load_from_data(self, data):
         '''
@@ -475,9 +502,9 @@ class StreetNet():
         node_dist1=net_point1.node_dist
         node_dist2=net_point2.node_dist
 
-        if fid_1==fid_2:  # both points on same edge
+        if net_point1.edge == net_point2.edge:  # both points on same edge
 
-            dist_diff=node_dist2[n1_1]-node_dist1[n1_1]
+            dist_diff = node_dist2[n1_1] - node_dist1[n1_1]
 
             path_edges=[fid_1]
             path_distances=[abs(dist_diff)]
@@ -547,7 +574,7 @@ class StreetNet():
         return path
 
 
-    def path_directed(self,net_point1,net_point2):
+    def path_directed(self, net_point1, net_point2):
 
         n1_1 = net_point1.edge.node_neg
         n2_1 = net_point1.edge.node_pos
