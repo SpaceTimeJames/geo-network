@@ -473,7 +473,6 @@ if __name__ == '__main__':
     from settings import DATA_DIR
     import os
     from network.plotting import network_point_coverage, colorline
-    from network.geos import NetworkPoint
     from kde.okabe import EqualSplitKernel
 
     this_dir = os.path.dirname(os.path.realpath(__file__))
@@ -490,7 +489,7 @@ if __name__ == '__main__':
     # generate some random points inside camden
     import numpy as np
     xmin, ymin, xmax, ymax = g.extent
-    grid_edge_idx = g.build_grid_edge_index(xmin, xmax, ymin, ymax, 50)
+    grid_edge_idx = g.build_grid_edge_index(50)
 
     xs = np.random.rand(100)*(xmax - xmin) + xmin
     ys = np.random.rand(100)*(ymax - ymin) + ymin
@@ -538,7 +537,7 @@ if __name__ == '__main__':
     print TestKernel.evaluate_point('point1')
 
     # define a whole load of points on the network for plotting
-    xy, cd = network_point_coverage(g.g, dx=5)
+    xy, cd, edge_count = network_point_coverage(g.g, dx=5)
 
     # evaluate KDE at those points
     res = []

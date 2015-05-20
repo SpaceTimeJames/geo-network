@@ -58,7 +58,8 @@ def network_point_coverage(net, dx=None, include_nodes=True):
     :param dx: Optional spacing between points, otherwise this is automatically selected
     :param include_nodes: If True, points are added at node locations too
     :return: (i) (E x N(i) x 2) array of Cartesian points, E is the # edges, N(i) is the # points on edge i
-             (ii) E x N(i) array of NetPoints)
+             (ii) E x N(i) array of NetPoints
+             (iii) length E array of indices. Each gives the number of points in that edge
     TODO: switch to using NetworkPoint objects
     '''
 
@@ -68,7 +69,9 @@ def network_point_coverage(net, dx=None, include_nodes=True):
     ## temp set dx with a constant
     xy = []
     cd = []
+    edge_count = []
     dx = dx or 1.
+
     for e in net.edges():
         this_xy = []
         this_cd = []
@@ -88,8 +91,9 @@ def network_point_coverage(net, dx=None, include_nodes=True):
             this_cd.append(NetPoint(net, this_edge, node_dist))
         xy.extend(this_xy)
         cd.extend(this_cd)
+        edge_count.append(interp_lengths.size)
 
-    return np.array(xy), NetworkData(cd)
+    return np.array(xy), NetworkData(cd), edge_count
 
 
 if __name__ == "__main__":

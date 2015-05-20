@@ -6,8 +6,7 @@ from data.models import CartesianSpaceTimeData
 
 #TODO: update this to use a function too, then implement that in hotspot.STNetworkBowers
 def network_linkages(data_source_net,
-                     max_t,
-                     max_d,
+                     linkage_fun,
                      data_source_txy=None,
                      data_target_net=None,
                      data_target_txy=None,
@@ -24,8 +23,8 @@ def network_linkages(data_source_net,
     :param data_source_net: NetworkSpaceTimeData array of source data.  Must be sorted by time ascending.
     :param data_source_txy: Optional EuclideanSpaceTimeData array of source data.  Must be sorted by time ascending.
     If not supplied, compute from the network points.
-    :param max_t: maximum time difference (minimum is always zero)
-    :param max_d: maximum spatial distance
+    :param linkage_fun: Function that accepts two DataArrays (dt, dd) and returns an array of bool indicating whether
+    the link with those distances is permitted.
     :param data_target_net: optional NetworkSpaceTimeData array.  If supplied, the linkage indices are between
     data_source and data_target, otherwise the two are set equal
     :param data_target_txy: as above but a EuclideanSpaceTimeData array
@@ -61,10 +60,9 @@ def network_linkages(data_source_net,
         n_pair = ndata_source * (ndata_source - 1) / 2
 
     # quick Euclidean scan
-    link_fun = linkage_func_separable(max_t, max_d)
     idx_i, idx_j = linkages(
         data_source_txy,
-        link_fun,
+        linkage_fun,
         data_target=data_target_txy,
         chunksize=chunksize,
         remove_coincident_pairs=remove_coincident_pairs)
@@ -80,6 +78,8 @@ def network_linkages(data_source_net,
 
     link_i = []
     link_j = []
+    dt = []
+    dd = []
 
     chunksize = min(chunksize, idx_i.size)
 
@@ -88,24 +88,16 @@ def network_linkages(data_source_net,
         i = idx_i.flat[k:(k + chunksize)]
         j = idx_j.flat[k:(k + chunksize)]
 
-        # time difference is independent of spatial representation
-        # dt = (data_target_net.time.getrows(j) - data_source_net.time.getrows(i)).toarray(0)
+        # recompute dt and dd, this time using NETWORK DISTANCE
+        this_dt = (data_target_net.time.getrows(j) - data_source_net.time.getrows(i)).toarray(0)
+        this_dd = (data_target_net.space.getrows(j).distance(data_source_net.space.getrows(i))).toarray(0)
 
-        # get Euclidean distance as a min bound
-        # dd_euc = (data_target_txy.space.getrows(j).distance(data_source_txy.space.getrows(i))).toarray(0)
-        # mask = (dt <= max_t) & (dt > 0.) & (dd_euc <= max_d)
-        # if remove_coincident_pairs:
-        #     mask &= (dd_euc != 0)
-
-        # eliminate chunk indices
-        # repeat for remaining pairs using network distance
-        # print "Removed %d / %d links based on Euclidean distance" % (len(i) - sum(mask), len(i))
-        # i = i[mask]
-        # j = j[mask]
-        dd_net = (data_target_net.space.getrows(j).distance(data_source_net.space.getrows(i))).toarray(0)
-        mask_net = dd_net <= max_d
+        # reapply the linkage threshold function
+        mask_net = linkage_fun(this_dt, this_dd) & (this_dt > 0)
 
         link_i.extend(i[mask_net])
         link_j.extend(j[mask_net])
+        dt.extend(this_dt[mask_net])
+        dd.extend(this_dd[mask_net])
 
-    return np.array(link_i), np.array(link_j)
+    return np.array(link_i), np.array(link_j), np.array(dt), np.array(dd)

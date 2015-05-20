@@ -28,9 +28,6 @@ class Edge(object):
         return self.graph.g.edge[self.node_pos][self.node_neg][self.edge_id]
 
     def __eq__(self, other):
-        # FIXME: this fails due to different import path(?)
-        # if not isinstance(other, self.__class__):
-        #     raise TypeError("Can only compare Edge with another Edge.")
         return (
             self.graph is other.graph and
             self.node_neg == other.node_neg and
@@ -48,9 +45,6 @@ class NetPoint(object):
         :param node_dist: A dictionary containing the distance along this edge from both the positive and negative end
         The key gives the node ID, the value gives the distance from that end.
         """
-        # FIXME: this fails due to different import path(?)
-        # if not isinstance(street_net, StreetNet):
-        #     raise TypeError("street_net must be an instance of the StreetNet class.")
         self.graph = street_net
         self.edge = edge
         self.node_dist = node_dist
@@ -60,15 +54,13 @@ class NetPoint(object):
         return self.graph.network_point_to_xy(self)
 
     def test_compatible(self, other):
-        # FIXME: this checking fails due to different import paths
-        # if not isinstance(other, NetPoint):
-        #     raise TypeError("Both objects must be an instance of the StreetNet class.")
         if not self.graph is other.graph:
             raise AttributeError("The two points are defined on different graphs")
 
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
             raise TypeError("Can only compare NetPoint with another NetPoint.")
+        # don't use test_compatible here because we want such an operation to return False, not raise an exception
         return (
             self.graph is other.graph and
             self.edge == other.edge and
@@ -103,9 +95,18 @@ class NetPath(object):
         if len(nodes) != len(edges) - 1:
             raise AttributeError('Path mismatch: node list wrong length')
 
+        if self.start.graph is not self.end.graph:
+            raise AttributeError('Path mismatch: nodes are defined on different graphs')
+
+        self.graph = self.start.graph
+
     @property
     def length(self):
         return sum(self.distances)
+
+    @property
+    def node_degrees(self):
+        return [self.graph.g.degree(t) for t in self.nodes]
 
 
 class GridEdgeIndex(object):
@@ -438,8 +439,8 @@ class StreetNet(object):
         #Produce a shapely point and find which cell it lies in.
         point = Point(x,y)
 
-        x_loc=bs.bisect_left(grid_edge_index.x_grid,x)
-        y_loc=bs.bisect_left(grid_edge_index.y_grid,y)
+        x_loc = bs.bisect_left(grid_edge_index.x_grid, x)
+        y_loc = bs.bisect_left(grid_edge_index.y_grid, y)
 
         #Go round this cell and all neighbours (9 in total) collecting all edges
         #which could intersect with any of these.

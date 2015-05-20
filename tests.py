@@ -179,7 +179,8 @@ if __name__ == "__main__":
     h.train(st_net_point_array)
 
     # get a roughly even coverage of points across the network
-    xy_points, net_points = plotting.network_point_coverage(itn_net, dx=10)
+    xy_points, net_points, edge_count = plotting.network_point_coverage(itn_net, dx=10)
+    c_edge_count = np.cumsum(edge_count)
 
     # make a 'prediction' for time 1.1
     st_net_prediction_array = models.DataArray(
@@ -189,6 +190,18 @@ if __name__ == "__main__":
     z = h.predict(st_net_prediction_array)
 
     if b_plot:
+        # get colour limits - otherwise single large values dominate the plot
+        fmax = 0.7
+        vmax = sorted(z)[int(len(z) * fmax)]
+
         plt.figure()
         itn_net.plot_network(edge_width=8, edge_inner_col='w')
-        plt.scatter(xy_points[:, 0], xy_points[:,1], c=z, cmap='Reds', vmax=0.001, s=50, edgecolor='none', zorder=3)
+        plt.scatter(xy_points[:, 0], xy_points[:,1], c=z, cmap='Reds', vmax=vmax, s=50, edgecolor='none', zorder=3)
+        # j = 0
+        # for i in range(len(itn_net.edges())):
+        #     n = c_edge_count[i]
+        #     x = xy_points[j:n, 0]
+        #     y = xy_points[j:n, 1]
+        #     val = z[j:n]
+        #     plotting.colorline(x, y, val, linewidth=8)
+        #     j = n
