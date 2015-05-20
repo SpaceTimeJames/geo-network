@@ -352,6 +352,7 @@ class ITNStreetNet(StreetNet):
             atts = data.roadLinks[roadLink_fid].tags
             # atts['polyline'] = data.roadLinks[roadLink_fid].polyline
             atts['linestring'] = LineString(data.roadLinks[roadLink_fid].polyline)
+            atts['length'] = atts['linestring'].length
             atts['fid']=roadLink_fid
 
             #This if statement just checks that both terminal nodes are in the roadNodes
