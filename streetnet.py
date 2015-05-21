@@ -11,6 +11,7 @@ import pysal as psl
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.path import Path
+from matplotlib.collections import PatchCollection
 from matplotlib.colors import Normalize
 from matplotlib.colorbar import ColorbarBase
 import copy
@@ -23,9 +24,35 @@ class Edge(object):
         self.node_neg = orientation_neg
         self.edge_id = fid
 
+    # redefine __getattr__ so that any dict-style lookups on this object are redirected to look in the attributes
+    def __getitem__(self, item):
+        return self.attrs[item]
+
     @property
     def attrs(self):
         return self.graph.g.edge[self.node_pos][self.node_neg][self.edge_id]
+
+    @property
+    def linestring(self):
+        return self.attrs['linestring']
+
+    @property
+    def centroid(self):
+        """
+        The line's central coordinate as a NetPoint.
+        """
+        node_dist = {
+            self.node_neg: self['length'] / 2.0,
+            self.node_pos: self['length'] / 2.0
+        }
+        return NetPoint(self.graph, self, node_dist)
+
+    @property
+    def centroid_xy(self):
+        """
+        The line's central coordinate in cartesian coordinates.
+        """
+        return self.centroid.cartesian_coords
 
     def __eq__(self, other):
         return (
@@ -182,27 +209,12 @@ class StreetNet(object):
             obj = cPickle.load(f)
         return obj
 
-    def load_from_data(self, data):
-        '''
-        ITNData passed to this and the network is built using routines below.
-        Positional info is also taken; can be useful for plotting.
-        '''
-
-        print 'Building the network'
-        self.build_network(data)
-
-        print 'Building position dictionary'
-        self.build_posdict(data)
-
-        print 'Building routing network'
-        self.build_routing_network()
-
-
-    def inherit(self, g):
-
-        self.g = g
-        self.build_routing_network()
-
+    @classmethod
+    def from_multigraph(cls, g):
+        obj = cls()
+        obj.g = g
+        obj.build_routing_network()
+        return obj
 
     def build_network(self, data):
 
@@ -243,13 +255,9 @@ class StreetNet(object):
                      node_col='r'):
 
         '''
-        This plots the section of the network that lies within a given bounding
-        box, inside the axes ax.
-
-        The idea is the initialise the axes elsewhere, pass them to this function,
-        and the network plot gets dumped into it - this is useful for multi-frame
-        figures, for example.
-
+        This plots the section of the network that lies within a given bounding box.
+        Updated to use a PatchCollection, which is faster to plot.
+        :param ax: Optional axis handle for plotting, otherwise use the current axes/make a new figure.
         :param edge_inner_col: [Optional] If a scalar, fill all edges with this value.
         If a dict then each key is an edge ID with corresponding value indicating the fill colour for that edge.
         '''
@@ -263,10 +271,16 @@ class StreetNet(object):
         ))
         ax = ax if ax is not None else plt.gca()
         if show_edges:
-            for n1,n2,fid,attr in self.g.edges(data=True,keys=True):
+
+            path_patches = []
+
+            for e in self.edges():
+                fid = e['fid']
+                ls = e['linestring']
+            # for n1,n2,fid,attr in self.g.edges(data=True, keys=True):
 
                 # bbox_check=[min_x<=p[0]<=max_x and min_y<=p[1]<=max_y for p in attr['polyline']]
-                bbox_check = bounding_poly.intersects(attr['linestring'])
+                bbox_check = bounding_poly.intersects(ls)
 
                 #This checks that at least some of the line lies within the bounding
                 #box. This is to avoid creating unnecessary lines which will not
@@ -274,18 +288,19 @@ class StreetNet(object):
                 # if any(bbox_check):
                 if bbox_check:
 
-                    # path = Path(attr['polyline'])
-                    path = Path(attr['linestring'])
-                    patch = patches.PathPatch(path, facecolor='none', edgecolor=edge_outer_col, lw=edge_width)
-                    ax.add_patch(patch)
+                    path = Path(ls)
+                    path_patches.append(patches.PathPatch(path, facecolor='none', edgecolor=edge_outer_col, lw=edge_width))
+                    # patch = patches.PathPatch(path, facecolor='none', edgecolor=edge_outer_col, lw=edge_width)
+                    # ax.add_patch(patch)
 
                     if edge_inner_col is not None:
                         if isinstance(edge_inner_col, dict):
                             ec = edge_inner_col.get(fid, 'w')
                         else:
                             ec = edge_inner_col
-                        patch = patches.PathPatch(path, facecolor='none', edgecolor=ec, lw=0.6*edge_width, zorder=2)
-                        ax.add_patch(patch)
+                        # patch = patches.PathPatch(path, facecolor='none', edgecolor=ec, lw=0.6*edge_width, zorder=2)
+                        # ax.add_patch(patch)
+                        path_patches.append(patches.PathPatch(path, facecolor='none', edgecolor=ec, lw=0.6*edge_width, zorder=2))
 
                     #These circles are a massive fudge to give the lines 'rounded'
                     #ends. They look nice, but best to only do them at the last
@@ -298,6 +313,8 @@ class StreetNet(object):
 #                    end2=patches.Circle(attr['polyline'][-1],radius=3.2*edge_width,facecolor='k',edgecolor='k',lw=0,zorder=1)
 #                    ax.add_patch(end2)
 
+            ax.add_collection(PatchCollection(path_patches, match_original=True))
+
         if show_nodes:
             node_points=[self.g.node[v]['loc'] for v in self.g]
             node_points_bbox=[p for p in node_points if min_x<=p[0]<=max_x and min_y<=p[1]<=max_y]
@@ -308,7 +325,7 @@ class StreetNet(object):
         ax.set_ylim(min_y,max_y)
         ax.set_aspect('equal')
 
-    def within_boundary(self,poly,outer_buffer=0):
+    def within_boundary(self, poly, outer_buffer=0):
 
         '''
         This cuts out only the part of the network which lies within some specified
@@ -345,12 +362,8 @@ class StreetNet(object):
         for v in g_new:
             g_new.node[v]['loc']=self.g.node[v]['loc']
 
-        #Make the new class and inherit the network
-        net_new = self.__class__()
-        net_new.inherit(g_new)
-
-        return net_new
-
+        # generate a new object from this multigraph
+        return self.__class__.from_multigraph(g_new)
 
     def save(self, filename):
         '''
@@ -772,9 +785,13 @@ class StreetNet(object):
         Get all edges in the network.  Optionally return only those that intersect the provided bounding polygon
         '''
         if bounding_poly:
-            return [x for x in self.g.edges(data=True) if bounding_poly.intersects(x[2]['linestring'])]
+            return [Edge(self, **x[2]) for x in self.g.edges(data=True) if bounding_poly.intersects(x[2]['linestring'])]
         else:
-            return self.g.edges(data=True)
+            return [Edge(self, **x[2]) for x in self.g.edges(data=True)]
+        # if bounding_poly:
+        #     return [x for x in self.g.edges(data=True) if bounding_poly.intersects(x[2]['linestring'])]
+        # else:
+        #     return self.g.edges(data=True)
 
     ### ADDED BY GABS
     def edge(self, node1, node2, edge_id):
@@ -807,15 +824,13 @@ class StreetNet(object):
         snap_distance = snap_distances[idx]
         closest_edge = edges[idx]
 
-        da = closest_edge[2]['linestring'].project(pt)
-        dist_along={
-            closest_edge[2]['orientation_neg']: da,
-            closest_edge[2]['orientation_pos']: closest_edge[2]['linestring'].length - da,
+        da = closest_edge['linestring'].project(pt)
+        dist_along = {
+            closest_edge.node_neg: da,
+            closest_edge.node_pos: closest_edge['linestring'].length - da,
         }
-        # edge = (closest_edge[0], closest_edge[1], closest_edge[2]['fid'])
-        edge = Edge(self, **closest_edge[2])
 
-        return NetPoint(self, edge, dist_along), snap_distance
+        return NetPoint(self, closest_edge, dist_along), snap_distance
 
     ### ADDED BY GABS
     @property
@@ -839,8 +854,11 @@ class StreetNet(object):
 
     ### ADDED BY GABS
     def network_point_to_xy(self, net_point):
-        ## TODO: check the order of linestring definition (neg to pos?)
-        ls = net_point.edge.attrs['linestring']
+        """
+        Convert a NetPoint to cartesian coordinates. This uses linear interpolation along the street segment.
+        Assumes that the linestring is defined from negative to positive end
+        :return: (x, y) coordinates corresponding to supplied point
+        """
+        ls = net_point.edge['linestring']
         pt = ls.interpolate(net_point.node_dist[net_point.edge.node_neg])
-        # pt = ls.interpolate(net_point.node_dist[net_point.edge.node_pos])
         return pt.x, pt.y

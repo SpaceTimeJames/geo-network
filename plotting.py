@@ -72,23 +72,22 @@ def network_point_coverage(net, dx=None, include_nodes=True):
     edge_count = []
     dx = dx or 1.
 
-    for e in net.edges():
+    for edge in net.edges():
         this_xy = []
         this_cd = []
-        n_pt = int(np.math.ceil(e[2]['length'] / float(dx)))
-        interp_lengths = np.linspace(eps, e[2]['length'] - eps, n_pt)
+        n_pt = int(np.math.ceil(edge['length'] / float(dx)))
+        interp_lengths = np.linspace(eps, edge['length'] - eps, n_pt)
         # interpolate along linestring
-        ls = e[2]['linestring']
+        ls = edge['linestring']
         interp_pts = [ls.interpolate(t) for t in interp_lengths]
 
         for i in range(interp_lengths.size):
             this_xy.append((interp_pts[i].x, interp_pts[i].y))
-            this_edge = Edge(net, **e[2])
             node_dist = {
-                e[2]['orientation_neg']: interp_lengths[i],
-                e[2]['orientation_pos']: e[2]['length'] - interp_lengths[i],
+                edge['orientation_neg']: interp_lengths[i],
+                edge['orientation_pos']: edge['length'] - interp_lengths[i],
             }
-            this_cd.append(NetPoint(net, this_edge, node_dist))
+            this_cd.append(NetPoint(net, edge, node_dist))
         xy.extend(this_xy)
         cd.extend(this_cd)
         edge_count.append(interp_lengths.size)

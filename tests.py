@@ -76,24 +76,21 @@ if __name__ == "__main__":
     b_plot = False
 
     # mini test dataset
+
     # test dataset is in a directory in the same path as this module called 'test_data'
     this_dir = os.path.dirname(os.path.realpath(__file__))
     IN_FILE = os.path.join(this_dir, 'test_data', 'mastermap-itn_417209_0_brixton_sample.gml')
-
-    # load from raw data
     test_data = read_gml(IN_FILE)
     itn_net = ITNStreetNet.from_data_structure(test_data)
 
-    # buffered Camden dataset
+    # buffered Camden dataset from raw data
     # test dataset is in a directory in the data directory called 'network_data'
     # this_dir = os.path.join(settings.DATA_DIR, 'network_data')
     # IN_FILE = os.path.join(this_dir, 'mastermap-itn_544003_0_camden_buff2000.gml')
-
-    # load from raw data
     # test_data = read_gml(IN_FILE)
     # itn_net = ITNStreetNet.from_data_structure(test_data)
 
-    # from pickle
+    # buffered Camden dataset from pickle
     # this_dir = os.path.dirname(os.path.realpath(__file__))
     # IN_FILE = os.path.join(this_dir, 'test_data', 'mastermap-itn_544003_0_camden_buff2000.pickle')
     # itn_net = ITNStreetNet.from_pickle(IN_FILE)
