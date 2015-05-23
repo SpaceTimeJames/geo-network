@@ -8,7 +8,7 @@ import settings
 import numpy as np
 from matplotlib import pyplot as plt
 from utils import network_linkages
-from validation import hotspot
+from validation import hotspot, roc
 import plotting
 
 class TestNetworkData(unittest.TestCase):
@@ -19,12 +19,11 @@ class TestNetworkData(unittest.TestCase):
 
         self.test_data = read_gml(IN_FILE)
 
-        self.itn_net = ITNStreetNet()
-        self.itn_net.load_from_data(self.test_data)
+        self.itn_net = ITNStreetNet.from_data_structure(self.test_data)
 
     def test_grid_index(self):
-        xmin, xmax, ymin, ymax =  530850, 531900, 174550, 175500
-        grid_edge_index = self.itn_net.build_grid_edge_index(xmin, xmax, ymin, ymax, 50)
+        xmin, ymin, xmax, ymax =  self.itn_net.extent
+        grid_edge_index = self.itn_net.build_grid_edge_index(50)
         x_grid_expct = np.arange(xmin, xmax, 50)
         self.assertTrue(np.all(grid_edge_index.x_grid == x_grid_expct))
 
@@ -52,7 +51,7 @@ class TestNetworkData(unittest.TestCase):
             175180
         )
         xmin, ymin, xmax, ymax = self.itn_net.extent
-        grid_edge_index = self.itn_net.build_grid_edge_index(xmin, xmax, ymin, ymax, 50)
+        grid_edge_index = self.itn_net.build_grid_edge_index(50)
         net_points = []
         snap_dists = []
         for x, y in zip(x_pts, y_pts):
@@ -169,22 +168,37 @@ if __name__ == "__main__":
     # compute linkages at a max delta t and delta d
     # i, j = network_linkages(st_net_point_array, max_t=1.0, max_d=5000.)
 
+    # excise data with time cutoff (validation machinery does this for you normally)
+    training_data = st_net_point_array.getrows(np.where(st_net_point_array.time <= 0.6)[0])
+    testing_data = st_net_point_array.getrows(np.where(st_net_point_array.time > 0.6)[0])
+
     # create instance of Bowers ProMap network kernel
-    h = hotspot.STNetworkBowers(0.3, 2000)
+    h = hotspot.STNetworkBowers(1000, 2)
 
     # bind it to data
-    h.train(st_net_point_array)
+    h.train(training_data)
+
+    # instantiate Roc
+    r = roc.NetworkRocSegments(data=testing_data.space, graph=itn_net)
+    r.set_sample_units(None)
+    prediction_points_net = r.sample_points
+    prediction_points_xy = prediction_points_net.to_cartesian()
+    prediction_points_tnet = hotspot.generate_st_prediction_dataarray(0.6,
+                                                                      prediction_points_net,
+                                                                      dtype=models.NetworkSpaceTimeData)
+    z = h.predict(prediction_points_tnet)
+    r.set_prediction(z)
 
     # get a roughly even coverage of points across the network
     xy_points, net_points, edge_count = plotting.network_point_coverage(itn_net, dx=10)
     c_edge_count = np.cumsum(edge_count)
 
     # make a 'prediction' for time 1.1
-    st_net_prediction_array = models.DataArray(
-        np.ones(net_points.ndata) * 1.1
-    ).adddim(net_points, type=models.NetworkSpaceTimeData)
+    # st_net_prediction_array = models.DataArray(
+    #     np.ones(net_points.ndata) * 1.1
+    # ).adddim(net_points, type=models.NetworkSpaceTimeData)
 
-    z = h.predict(st_net_prediction_array)
+    # z = h.predict(st_net_prediction_array)
 
     if b_plot:
         # get colour limits - otherwise single large values dominate the plot
