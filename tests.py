@@ -170,6 +170,8 @@ if __name__ == "__main__":
 
     # excise data with time cutoff (validation machinery does this for you normally)
     training_data = st_net_point_array.getrows(np.where(st_net_point_array.time <= 0.6)[0])
+    training_t = training_data.toarray(0)
+    training_xy = training_data.space.to_cartesian()
     testing_data = st_net_point_array.getrows(np.where(st_net_point_array.time > 0.6)[0])
 
     # create instance of Bowers ProMap network kernel
@@ -188,6 +190,14 @@ if __name__ == "__main__":
                                                                       dtype=models.NetworkSpaceTimeData)
     z = h.predict(prediction_points_tnet)
     r.set_prediction(z)
+
+    if b_plot:
+        # show the predicted values, training data and sampling points
+        r.plot()
+        plt.scatter(training_xy.toarray(0), training_xy.toarray(1), c=training_t, cmap='jet', s=40)
+        plt.plot(prediction_points_xy.toarray(0), prediction_points_xy.toarray(1), 'kx', markersize=20)
+        plt.colorbar()
+
 
     # get a roughly even coverage of points across the network
     xy_points, net_points, edge_count = plotting.network_point_coverage(itn_net, dx=10)
