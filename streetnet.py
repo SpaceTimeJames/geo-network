@@ -20,9 +20,9 @@ class Edge(object):
 
     def __init__(self, street_net, orientation_pos=None, orientation_neg=None, fid=None, **kwargs):
         self.graph = street_net
-        self.node_pos = orientation_pos
-        self.node_neg = orientation_neg
-        self.edge_id = fid
+        self.orientation_neg = orientation_neg
+        self.orientation_pos = orientation_pos
+        self.fid = fid
 
     # redefine __getattr__ so that any dict-style lookups on this object are redirected to look in the attributes
     def __getitem__(self, item):
@@ -30,7 +30,7 @@ class Edge(object):
 
     @property
     def attrs(self):
-        return self.graph.g.edge[self.node_pos][self.node_neg][self.edge_id]
+        return self.graph.g.edge[self.orientation_neg][self.orientation_pos][self.fid]
 
     @property
     def linestring(self):
@@ -42,8 +42,8 @@ class Edge(object):
         The line's central coordinate as a NetPoint.
         """
         node_dist = {
-            self.node_neg: self['length'] / 2.0,
-            self.node_pos: self['length'] / 2.0
+            self.orientation_neg: self['length'] / 2.0,
+            self.orientation_pos: self['length'] / 2.0
         }
         return NetPoint(self.graph, self, node_dist)
 
@@ -57,9 +57,9 @@ class Edge(object):
     def __eq__(self, other):
         return (
             self.graph is other.graph and
-            self.node_neg == other.node_neg and
-            self.node_pos == other.node_pos and
-            self.edge_id == other.edge_id
+            self.orientation_neg == other.orientation_neg and
+            self.orientation_pos == other.orientation_pos and
+            self.fid == other.fid
         )
 
 
@@ -502,13 +502,13 @@ class StreetNet(object):
 
     def path_undirected(self,net_point1,net_point2):
 
-        n1_1 = net_point1.edge.node_neg
-        n2_1 = net_point1.edge.node_pos
-        fid_1 = net_point1.edge.edge_id
+        n1_1 = net_point1.edge.orientation_neg
+        n2_1 = net_point1.edge.orientation_pos
+        fid_1 = net_point1.edge.fid
 
-        n1_2 = net_point2.edge.node_neg
-        n2_2 = net_point2.edge.node_pos
-        fid_2 = net_point2.edge.edge_id
+        n1_2 = net_point2.edge.orientation_neg
+        n2_2 = net_point2.edge.orientation_pos
+        fid_2 = net_point2.edge.fid
 
         # n1_1,n2_1,fid_1=net_point1.edge
         # n1_2,n2_2,fid_2=net_point2.edge
@@ -590,13 +590,13 @@ class StreetNet(object):
 
     def path_directed(self, net_point1, net_point2):
 
-        n1_1 = net_point1.edge.node_neg
-        n2_1 = net_point1.edge.node_pos
-        fid_1 = net_point1.edge.edge_id
+        n1_1 = net_point1.edge.orientation_neg
+        n2_1 = net_point1.edge.orientation_pos
+        fid_1 = net_point1.edge.fid
 
-        n1_2 = net_point2.edge.node_neg
-        n2_2 = net_point2.edge.node_pos
-        fid_2 = net_point2.edge.edge_id
+        n1_2 = net_point2.edge.orientation_neg
+        n2_2 = net_point2.edge.orientation_pos
+        fid_2 = net_point2.edge.fid
 
         # n1_1,n2_1,fid_1=net_point1.edge
         # n1_2,n2_2,fid_2=net_point2.edge
@@ -794,8 +794,8 @@ class StreetNet(object):
         #     return self.g.edges(data=True)
 
     ### ADDED BY GABS
-    def edge(self, node1, node2, edge_id):
-        return self.g.edge[node1, node2, edge_id]
+    def edge(self, node1, node2, fid):
+        return self.g.edge[node1, node2, fid]
 
     ### ADDED BY GABS
     def lines_iter(self):
@@ -826,8 +826,8 @@ class StreetNet(object):
 
         da = closest_edge['linestring'].project(pt)
         dist_along = {
-            closest_edge.node_neg: da,
-            closest_edge.node_pos: closest_edge['linestring'].length - da,
+            closest_edge.orientation_neg: da,
+            closest_edge.orientation_pos: closest_edge['linestring'].length - da,
         }
 
         return NetPoint(self, closest_edge, dist_along), snap_distance
@@ -860,5 +860,5 @@ class StreetNet(object):
         :return: (x, y) coordinates corresponding to supplied point
         """
         ls = net_point.edge['linestring']
-        pt = ls.interpolate(net_point.node_dist[net_point.edge.node_neg])
+        pt = ls.interpolate(net_point.node_dist[net_point.edge.orientation_neg])
         return pt.x, pt.y
