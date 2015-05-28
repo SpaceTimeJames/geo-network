@@ -28,6 +28,13 @@ class Edge(object):
     def __getitem__(self, item):
         return self.attrs[item]
 
+    def __repr__(self):
+        return "<Edge {0} <-> {1} ({2})>".format(
+            self.orientation_neg,
+            self.orientation_pos,
+            self.fid
+        )
+
     @property
     def attrs(self):
         return self.graph.g.edge[self.orientation_neg][self.orientation_pos][self.fid]
@@ -37,13 +44,17 @@ class Edge(object):
         return self.attrs['linestring']
 
     @property
+    def length(self):
+        return self.attrs['length']
+
+    @property
     def centroid(self):
         """
         The line's central coordinate as a NetPoint.
         """
         node_dist = {
-            self.orientation_neg: self['length'] / 2.0,
-            self.orientation_pos: self['length'] / 2.0
+            self.orientation_neg: self.length / 2.0,
+            self.orientation_pos: self.length / 2.0
         }
         return NetPoint(self.graph, self, node_dist)
 
@@ -788,10 +799,16 @@ class StreetNet(object):
             return [Edge(self, **x[2]) for x in self.g.edges(data=True) if bounding_poly.intersects(x[2]['linestring'])]
         else:
             return [Edge(self, **x[2]) for x in self.g.edges(data=True)]
-        # if bounding_poly:
-        #     return [x for x in self.g.edges(data=True) if bounding_poly.intersects(x[2]['linestring'])]
-        # else:
-        #     return self.g.edges(data=True)
+
+    ### ADDED BY GABS
+    def nodes(self, bounding_poly=None):
+        """
+        Get all nodes in the network. Optionally return only those that intersect the provided bounding polygon
+        """
+        if bounding_poly:
+            return [x[0] for x in self.g.nodes(data=True) if bounding_poly.intersects(Point(*x[1]['loc']))]
+        else:
+            return self.g.nodes()
 
     ### ADDED BY GABS
     def edge(self, node1, node2, fid):
