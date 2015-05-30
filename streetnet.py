@@ -121,7 +121,7 @@ class NetPoint(object):
 
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
-            raise TypeError("Can only compare NetPoint with another NetPoint.")
+            return False
         # don't use test_compatible here because we want such an operation to return False, not raise an exception
         return (
             self.graph is other.graph and
