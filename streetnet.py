@@ -65,13 +65,37 @@ class Edge(object):
         """
         return self.centroid.cartesian_coords
 
+    @property
+    def node_pos_coords(self):
+        return self.graph.g.node[self.orientation_pos]['loc']
+
+    @property
+    def node_neg_coords(self):
+        return self.graph.g.node[self.orientation_neg]['loc']
+
     def __eq__(self, other):
-        return (
-            self.graph is other.graph and
-            self.orientation_neg == other.orientation_neg and
-            self.orientation_pos == other.orientation_pos and
-            self.fid == other.fid
-        )
+        """
+        Test for equality of two edges.
+        If the underlying graph is undirected, then it doesn't matter which way around the nodes are defined.
+        If it is directed, the node order is important.
+        :param other:
+        :return: Bool
+        """
+        if self.graph.directed:
+            return (
+                self.graph is other.graph and
+                self.orientation_neg == other.orientation_neg and
+                self.orientation_pos == other.orientation_pos and
+                self.fid == other.fid
+            )
+        else:
+            return (
+                self.graph is other.graph and (
+                    (self.orientation_neg == other.orientation_neg and self.orientation_pos == other.orientation_pos) or
+                    (self.orientation_neg == other.orientation_pos and self.orientation_pos == other.orientation_neg)
+                ) and
+                self.fid == other.fid
+            )
 
 
 class NetPoint(object):
@@ -97,8 +121,7 @@ class NetPoint(object):
 
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
-            return False
-#            raise TypeError("Can only compare NetPoint with another NetPoint.")
+            raise TypeError("Can only compare NetPoint with another NetPoint.")
         # don't use test_compatible here because we want such an operation to return False, not raise an exception
         return (
             self.graph is other.graph and
@@ -109,13 +132,15 @@ class NetPoint(object):
     def __sub__(self, other):
         # NetPoint - NetPoint -> NetPath
         self.test_compatible(other)
-        try:
-            if self.graph.directed:
-                return self.graph.path_directed(self, other)
-            else:
-                return self.graph.path_undirected(self, other)
-        except ValueError:
-            import ipdb; ipdb.set_trace()
+        if self.graph.directed:
+            return self.graph.path_directed(self, other)
+        else:
+            return self.graph.path_undirected(self, other)
+
+    def euclidean_distance(self, other):
+        # compute the Euclidean distance between two NetPoints
+        delta = np.array(self.cartesian_coords) - np.array(other.cartesian_coords)
+        return sum(delta ** 2) ** 0.5
 
 
 class NetPath(object):
@@ -512,23 +537,23 @@ class StreetNet(object):
         return closest_edges
 
 
-    def path_undirected(self,net_point1,net_point2):
+    def path_undirected(self,net_point_from,net_point_to):
 
-        n1_1 = net_point1.edge.orientation_neg
-        n2_1 = net_point1.edge.orientation_pos
-        fid_1 = net_point1.edge.fid
+        n1_1 = net_point_from.edge.orientation_neg
+        n2_1 = net_point_from.edge.orientation_pos
+        fid_1 = net_point_from.edge.fid
 
-        n1_2 = net_point2.edge.orientation_neg
-        n2_2 = net_point2.edge.orientation_pos
-        fid_2 = net_point2.edge.fid
+        n1_2 = net_point_to.edge.orientation_neg
+        n2_2 = net_point_to.edge.orientation_pos
+        fid_2 = net_point_to.edge.fid
 
         # n1_1,n2_1,fid_1=net_point1.edge
         # n1_2,n2_2,fid_2=net_point2.edge
 
-        node_dist1=net_point1.node_dist
-        node_dist2=net_point2.node_dist
+        node_dist1=net_point_from.node_dist
+        node_dist2=net_point_to.node_dist
 
-        if net_point1.edge == net_point2.edge:  # both points on same edge
+        if net_point_from.edge == net_point_to.edge:  # both points on same edge
 
             dist_diff = node_dist2[n1_1] - node_dist1[n1_1]
 
@@ -536,7 +561,7 @@ class StreetNet(object):
             path_distances=[abs(dist_diff)]
             path_nodes=[]
 
-            path=NetPath(net_point1,net_point2,path_edges,path_distances,path_nodes)
+            path=NetPath(net_point_from,net_point_to,path_edges,path_distances,path_nodes)
 
         else:
 
@@ -583,7 +608,7 @@ class StreetNet(object):
                     path_edges.append(fid_shortest)
                     path_distances.append(self.g[v][w][fid_shortest]['length'])
 
-                path=NetPath(net_point1,net_point2,path_edges,path_distances,path_nodes)
+                path=NetPath(net_point_from,net_point_to,path_edges,path_distances,path_nodes)
 
             except:
 
@@ -600,21 +625,21 @@ class StreetNet(object):
         return path
 
 
-    def path_directed(self, net_point1, net_point2):
+    def path_directed(self, net_point_from, net_point_to):
 
-        n1_1 = net_point1.edge.orientation_neg
-        n2_1 = net_point1.edge.orientation_pos
-        fid_1 = net_point1.edge.fid
+        n1_1 = net_point_from.edge.orientation_neg
+        n2_1 = net_point_from.edge.orientation_pos
+        fid_1 = net_point_from.edge.fid
 
-        n1_2 = net_point2.edge.orientation_neg
-        n2_2 = net_point2.edge.orientation_pos
-        fid_2 = net_point2.edge.fid
+        n1_2 = net_point_to.edge.orientation_neg
+        n2_2 = net_point_to.edge.orientation_pos
+        fid_2 = net_point_to.edge.fid
 
         # n1_1,n2_1,fid_1=net_point1.edge
         # n1_2,n2_2,fid_2=net_point2.edge
 
-        node_dist1=net_point1.node_dist
-        node_dist2=net_point2.node_dist
+        node_dist1=net_point_from.node_dist
+        node_dist2=net_point_to.node_dist
 
         if fid_1==fid_2:
 
@@ -626,7 +651,7 @@ class StreetNet(object):
                 path_distances=[dist_diff]
                 path_nodes=[]
 
-                path=NetPath(net_point1,net_point2,path_edges,path_distances,path_nodes)
+                path=NetPath(net_point_from,net_point_to,path_edges,path_distances,path_nodes)
 
             else:
 
@@ -648,7 +673,7 @@ class StreetNet(object):
                     path_distances=[node_dist2[p1_node]-node_dist1[p1_node]]
                     path_nodes=[]
 
-                    path=NetPath(net_point1,net_point2,path_edges,path_distances,path_nodes)
+                    path=NetPath(net_point_from,net_point_to,path_edges,path_distances,path_nodes)
 
                 else:
 
@@ -676,7 +701,7 @@ class StreetNet(object):
                         path_edges.append(fid_1)
                         path_distances.append(node_dist2[p2_node])
 
-                        path=NetPath(net_point1,net_point2,path_edges,path_distances,path_nodes)
+                        path=NetPath(net_point_from,net_point_to,path_edges,path_distances,path_nodes)
 
                     except:
 
@@ -772,7 +797,7 @@ class StreetNet(object):
                     path_edges.append(fid_shortest)
                     path_distances.append(self.g_routing[v][w][fid_shortest]['length'])
 
-                path=NetPath(net_point1,net_point2,path_edges,path_distances,path_nodes)
+                path=NetPath(net_point_from,net_point_to,path_edges,path_distances,path_nodes)
 
             except:
 
@@ -790,6 +815,40 @@ class StreetNet(object):
                 self.g_routing.add_edge(n1,n2,key=fid,attr_dict=removed_edge_atts)
 
         return path
+
+    ### ADDED BY GABS
+    def next_turn(self, edge, exclude_nodes=None):
+        """
+        Compute the options for routes at the end of the given edge, excluding reversal.
+        :param edge: Edge instance. The current direction of motion is from negative to positive
+        :param exclude_nodes: Optional. If supplied, this is a list with nodes that should be excluded from the result.
+        Useful for avoiding loops.
+        :return: List of Edges, again negative to positive movement.
+        """
+        if self.directed:
+            graph = self.g_routing
+        else:
+            graph = self.g
+        options = []
+        for k, v in graph.edge[edge.orientation_pos].iteritems():
+            options.extend(
+                [(k, t) for t in v.keys()]
+            )
+
+        def filter(to_node, edge_id):
+            filt = not (edge_id == edge.fid and to_node == edge.orientation_neg)  # remove reversal option
+            if exclude_nodes is None:
+                return filt
+            return filt and to_node not in exclude_nodes
+
+        return [
+            Edge(
+                self,
+                orientation_neg=edge.orientation_pos,
+                orientation_pos=to_node,
+                fid=edge_id
+            ) for to_node, edge_id in options if filter(to_node, edge_id)
+        ]
 
     ### ADDED BY GABS
     def edges(self, bounding_poly=None):
@@ -880,3 +939,4 @@ class StreetNet(object):
         ls = net_point.edge['linestring']
         pt = ls.interpolate(net_point.node_dist[net_point.edge.orientation_neg])
         return pt.x, pt.y
+
