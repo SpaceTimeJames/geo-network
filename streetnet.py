@@ -113,10 +113,12 @@ class NetPoint(object):
 
     @classmethod
     def from_cartesian(cls, street_net, x, y, grid_edge_index=None):
-        if grid_edge_index is None:
-            return street_net.closest_segments_euclidean_brute_force(x, y)[0]
-        else:
-            return street_net.closest_edges_euclidean(x, y, grid_edge_index=grid_edge_index)
+        if grid_edge_index is not None:
+            obj = street_net.closest_edges_euclidean(x, y, grid_edge_index=grid_edge_index)[0]
+            if obj is not None:  # if the index is poorly constructed, this method can fail
+                return obj
+        # revert to slow method if that happens
+        return street_net.closest_segments_euclidean_brute_force(x, y)[0]
 
     @property
     def cartesian_coords(self):
@@ -546,6 +548,9 @@ class StreetNet(object):
             net_point = NetPoint(self, edge, node_dist)
 
             closest_edges.append((net_point, snap_distance))
+
+        if not len(closest_edges):
+            return None, None
 
         if max_edges == 1:
             closest_edges = closest_edges[0]

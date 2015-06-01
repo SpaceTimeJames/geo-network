@@ -149,7 +149,7 @@ if __name__ == "__main__":
     fail_idx = []
     for i, (x, y) in enumerate(zip(x_pts, y_pts)):
         tmp = itn_net.closest_edges_euclidean(x, y, grid_edge_index=grid_edge_index)
-        if not len(tmp):
+        if tmp[0] is None:
             # some of those calls fail when the grid_size is too small (e.g. 50 is actually too small)
             # the fall back should probably be a method that does not depend on the grid, which is what
             # closest_segments_euclidean_brute_force is designed to do
