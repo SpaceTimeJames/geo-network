@@ -1,6 +1,7 @@
 __author__ = 'gabriel'
+from network import TEST_DATA_FILE
 from network.itn import read_gml, ITNStreetNet
-from network.streetnet import NetPath
+from network.streetnet import NetPath, NetPoint, Edge, GridEdgeIndex
 from data import models
 import os
 import unittest
@@ -14,10 +15,10 @@ import plotting
 class TestNetworkData(unittest.TestCase):
 
     def setUp(self):
-        this_dir = os.path.dirname(os.path.realpath(__file__))
-        IN_FILE = os.path.join(this_dir, 'test_data', 'mastermap-itn_417209_0_brixton_sample.gml')
+        # this_dir = os.path.dirname(os.path.realpath(__file__))
+        # IN_FILE = os.path.join(this_dir, 'test_data', 'mastermap-itn_417209_0_brixton_sample.gml')
 
-        self.test_data = read_gml(IN_FILE)
+        self.test_data = read_gml(TEST_DATA_FILE)
 
         self.itn_net = ITNStreetNet.from_data_structure(self.test_data)
 
@@ -55,7 +56,7 @@ class TestNetworkData(unittest.TestCase):
         net_points = []
         snap_dists = []
         for x, y in zip(x_pts, y_pts):
-            tmp = self.itn_net.closest_edges_euclidean(x, y, grid_edge_index=grid_edge_index)[0]
+            tmp = self.itn_net.closest_edges_euclidean(x, y, grid_edge_index=grid_edge_index)
             net_points.append(tmp[0])
             snap_dists.append(tmp[0])
 
@@ -69,6 +70,33 @@ class TestNetworkData(unittest.TestCase):
         net_point_array_directed = models.DirectedNetworkData(net_points)
 
         self.assertFalse(np.any(net_point_array.distance(net_point_array).data.sum()))
+
+    def test_snapping(self):
+        # lay down some known points
+        coords = [
+            (531022.868, 175118.877),
+            (531108.054, 175341.141),
+            (531600.117, 175243.572)
+        ]
+        # the edges they should correspond to
+        edge_params = [
+            {'orientation_neg': 'osgb4000000029961720_0',
+             'orientation_pos': 'osgb4000000029961721_0',
+             'fid': 'osgb4000000030340202'},
+            {'orientation_neg': 'osgb4000000029962839_0',
+             'orientation_pos': 'osgb4000000029962853_0',
+             'fid': 'osgb4000000030235941'},
+            {'orientation_neg': 'osgb4000000030778079_0',
+             'orientation_pos': 'osgb4000000030684375_0',
+             'fid': 'osgb4000000030235965'},
+        ]
+        for c, e in zip(coords, edge_params):
+            # snap point
+            this_netpoint = NetPoint.from_cartesian(self.itn_net, *c)
+            # check edge equality
+            this_edge = Edge(self.itn_net, **e)
+            self.assertEqual(this_netpoint.edge, this_edge)
+
 
 
 if __name__ == "__main__":
@@ -128,8 +156,6 @@ if __name__ == "__main__":
             # this method is MUCH slower but always finds an edge
             tmp = itn_net.closest_segments_euclidean_brute_force(x, y)
             fail_idx.append(i)
-        else:
-            tmp = tmp[0]
         net_points.append(tmp[0])
         snap_dists.append(tmp[1])
 
