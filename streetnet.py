@@ -81,21 +81,21 @@ class Edge(object):
         :param other:
         :return: Bool
         """
-        if self.graph.directed:
-            return (
-                self.graph is other.graph and
-                self.orientation_neg == other.orientation_neg and
-                self.orientation_pos == other.orientation_pos and
-                self.fid == other.fid
-            )
-        else:
-            return (
-                self.graph is other.graph and (
-                    (self.orientation_neg == other.orientation_neg and self.orientation_pos == other.orientation_pos) or
-                    (self.orientation_neg == other.orientation_pos and self.orientation_pos == other.orientation_neg)
-                ) and
-                self.fid == other.fid
-            )
+        # if self.graph.directed:
+        return (
+            self.graph is other.graph and
+            self.orientation_neg == other.orientation_neg and
+            self.orientation_pos == other.orientation_pos and
+            self.fid == other.fid
+        )
+        # else:
+        #     return (
+        #         self.graph is other.graph and (
+        #             (self.orientation_neg == other.orientation_neg and self.orientation_pos == other.orientation_pos) or
+        #             (self.orientation_neg == other.orientation_pos and self.orientation_pos == other.orientation_neg)
+        #         ) and
+        #         self.fid == other.fid
+        #     )
 
 
 class NetPoint(object):
@@ -837,38 +837,30 @@ class StreetNet(object):
         return path
 
     ### ADDED BY GABS
-    def next_turn(self, edge, exclude_nodes=None):
+    def next_turn(self, node, exclude_nodes=None):
         """
-        Compute the options for routes at the end of the given edge, excluding reversal.
-        :param edge: Edge instance. The current direction of motion is from negative to positive
+        Compute the options for routes at from the given node, optionally excluding a subset.
+        :param node: Node ID.
         :param exclude_nodes: Optional. If supplied, this is a list with nodes that should be excluded from the result.
-        Useful for avoiding loops.
-        :return: List of Edges, again negative to positive movement.
+        Useful for avoiding reversals.
+        :return: List of Edges
         """
         if self.directed:
             graph = self.g_routing
         else:
             graph = self.g
-        options = []
-        for k, v in graph.edge[edge.orientation_pos].iteritems():
-            options.extend(
-                [(k, t) for t in v.keys()]
-            )
-
-        def filter(to_node, edge_id):
-            filt = not (edge_id == edge.fid and to_node == edge.orientation_neg)  # remove reversal option
-            if exclude_nodes is None:
-                return filt
-            return filt and to_node not in exclude_nodes
-
-        return [
-            Edge(
-                self,
-                orientation_neg=edge.orientation_pos,
-                orientation_pos=to_node,
-                fid=edge_id
-            ) for to_node, edge_id in options if filter(to_node, edge_id)
-        ]
+        exclude_nodes = exclude_nodes or []
+        edges = []
+        for new_node, v in graph.edge[node].iteritems():
+            if new_node not in exclude_nodes:
+                for fid, attrs in v.items():
+                    edges.append(
+                        Edge(self,
+                             orientation_neg=attrs['orientation_neg'],
+                             orientation_pos=attrs['orientation_pos'],
+                             fid=fid)
+                    )
+        return edges
 
     ### ADDED BY GABS
     def edges(self, bounding_poly=None):

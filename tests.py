@@ -8,7 +8,7 @@ import unittest
 import settings
 import numpy as np
 from matplotlib import pyplot as plt
-from utils import network_linkages
+from utils import network_linkages, network_walker
 from validation import hotspot, roc
 import plotting
 
@@ -96,6 +96,14 @@ class TestNetworkData(unittest.TestCase):
             # check edge equality
             this_edge = Edge(self.itn_net, **e)
             self.assertEqual(this_netpoint.edge, this_edge)
+
+
+class TestUtils(unittest.TestCase)
+    def setUp(self):
+        self.test_data = read_gml(TEST_DATA_FILE)
+        self.itn_net = ITNStreetNet.from_data_structure(self.test_data)
+
+    def test_network_walker:
 
 
 
