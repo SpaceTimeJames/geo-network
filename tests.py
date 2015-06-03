@@ -104,7 +104,8 @@ class TestUtils(unittest.TestCase)
         self.itn_net = ITNStreetNet.from_data_structure(self.test_data)
 
     def test_network_walker:
-
+        g = network_walker(itn_net)
+        ## TODO: finish me
 
 
 if __name__ == "__main__":
