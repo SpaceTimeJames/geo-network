@@ -98,12 +98,12 @@ class TestNetworkData(unittest.TestCase):
             self.assertEqual(this_netpoint.edge, this_edge)
 
 
-class TestUtils(unittest.TestCase)
+class TestUtils(unittest.TestCase):
     def setUp(self):
         self.test_data = read_gml(TEST_DATA_FILE)
         self.itn_net = ITNStreetNet.from_data_structure(self.test_data)
 
-    def test_network_walker:
+    def test_network_walker(self):
         g = network_walker(itn_net)
         ## TODO: finish me
 
