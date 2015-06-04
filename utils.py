@@ -123,6 +123,7 @@ def network_walker(net_obj, source_node=None, max_distance=None, verbose=False):
     start node will be returned.
     """
     logger = logging.getLogger("network_walker.logger")
+    logger.handlers = []  # make sure logger has no handlers to begin with
     if verbose:
         logger.setLevel(logging.DEBUG)
         logger.addHandler(logging.StreamHandler())
@@ -143,10 +144,13 @@ def network_walker(net_obj, source_node=None, max_distance=None, verbose=False):
 
     stack = [net_obj.next_turn(source_node)]  # list of lists
 
+    # keep a tally of generation number
+    count = 0
+
     #The stack will empty when the source has been exhausted
     while stack:
 
-        print "Stack has length %d. Picking from top of the stack." % len(stack)
+        logger.info("Stack has length %d. Picking from top of the stack.", len(stack))
 
         if not len(stack[-1]):
             # no more nodes to search from previous edge
@@ -157,22 +161,26 @@ def network_walker(net_obj, source_node=None, max_distance=None, verbose=False):
             #Adjust the distance list to represent the new state of current_path too
             dist.pop()
 
-            print "Options exhausted. Backtracking..."
+            logger.info("Options exhausted. Backtracking...")
 
             # skip to next iteration
             continue
 
         # otherwise, grab and remove the next edge to search
         this_edge = stack[-1].pop()
+
+        logger.info("*** Generation %d ***", count)
+        count += 1
         yield (list(current_path), dist[-1], this_edge)
 
-        print "Walking edge %s" % this_edge
+        logger.info("Walking edge %s", this_edge)
 
         # check whether next node is within reach (if max_distance has been supplied)
         if max_distance is not None:
             dist_to_next_node = dist[-1] + this_edge.length
             if dist_to_next_node > max_distance:
-                print "Walking to the end of this edge is too far (%.2f), so won't explore further." % dist_to_next_node
+                logger.info("Walking to the end of this edge is too far (%.2f), so won't explore further.",
+                            dist_to_next_node)
                 continue
 
         # Add the next node's edges to the stack if it hasn't already been visited
@@ -181,13 +189,13 @@ def network_walker(net_obj, source_node=None, max_distance=None, verbose=False):
         node = get_next_node(this_edge, previous_node)
         # has this node been visited already?
         if node not in current_path:
-            print "Haven't visited this before, so adding to the stack."
+            logger.info("Haven't visited this before, so adding to the stack.")
             stack.append(net_obj.next_turn(node, exclude_nodes=[previous_node]))
             current_path.append(node)
             dist.append(dist[-1] + this_edge.length)
-            print "We are now distance %.2f away from the source point" % dist[-1]
+            logger.info("We are now distance %.2f away from the source point", dist[-1])
         else:
-            print "We were already here on iteration %d so ignoring it" % (current_path.index(node) + 1)
+            logger.info("We were already here on iteration %d so ignoring it", (current_path.index(node) + 1))
 
 
 def network_walker_uniform_sample_points(net_obj, interval, source_node=None):

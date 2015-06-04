@@ -234,22 +234,23 @@ if __name__ == "__main__":
         plt.colorbar()
 
     # repeat for a more accurate Roc class that uses multiple readings per segment
-    r2 = roc.NetworkRocSegmentsMean(data=testing_data.space, graph=itn_net)
-    r2.set_sample_units(None, 10)
-    prediction_points_net2 = r2.sample_points
-    prediction_points_xy2 = prediction_points_net2.to_cartesian()
-    prediction_points_tnet2 = hotspot.generate_st_prediction_dataarray(0.6,
-                                                                       prediction_points_net2,
-                                                                       dtype=models.NetworkSpaceTimeData)
-    z2 = h.predict(prediction_points_tnet2)
-    r2.set_prediction(z2)
+    if False:  # disable for now
+        r2 = roc.NetworkRocSegmentsMean(data=testing_data.space, graph=itn_net)
+        r2.set_sample_units(None, 10)
+        prediction_points_net2 = r2.sample_points
+        prediction_points_xy2 = prediction_points_net2.to_cartesian()
+        prediction_points_tnet2 = hotspot.generate_st_prediction_dataarray(0.6,
+                                                                           prediction_points_net2,
+                                                                           dtype=models.NetworkSpaceTimeData)
+        z2 = h.predict(prediction_points_tnet2)
+        r2.set_prediction(z2)
 
-    if b_plot:
-        # show the predicted values, training data and sampling points
-        r2.plot()
-        plt.scatter(training_xy.toarray(0), training_xy.toarray(1), c=training_t, cmap='jet', s=40)
-        plt.plot(prediction_points_xy2.toarray(0), prediction_points_xy2.toarray(1), 'kx', markersize=20)
-        plt.colorbar()
+        if b_plot:
+            # show the predicted values, training data and sampling points
+            r2.plot()
+            plt.scatter(training_xy.toarray(0), training_xy.toarray(1), c=training_t, cmap='jet', s=40)
+            plt.plot(prediction_points_xy2.toarray(0), prediction_points_xy2.toarray(1), 'kx', markersize=20)
+            plt.colorbar()
 
     # get a roughly even coverage of points across the network
     xy_points, net_points, edge_count = plotting.network_point_coverage(itn_net, dx=10)
@@ -278,3 +279,16 @@ if __name__ == "__main__":
         #     val = z[j:n]
         #     plotting.colorline(x, y, val, linewidth=8)
         #     j = n
+
+    from network import utils
+    g = utils.network_walker(itn_net, verbose=True)
+    res = [g.next() for i in range(30)]
+    itn_net.plot_network()
+    fig = plt.gcf()
+
+    for i in range(50):
+        plt.plot(*res[i][2].linestring.xy)
+        node_loc = itn_net.g.node[res[i][0][-1]]['loc']
+        plt.plot(node_loc[0], node_loc[1], 'o', markersize=10)
+        fig.savefig('/home/gabriel/tmp/%02d.png' % i)
+
