@@ -474,7 +474,10 @@ if __name__ == '__main__':
     from settings import DATA_DIR
     import os
     from network.plotting import network_point_coverage, colorline
+    from network.tests import load_test_network
+    from network import utils
     from kde.okabe import EqualSplitKernel
+    import numpy as np
 
     this_dir = os.path.dirname(os.path.realpath(__file__))
     ITNFILE = os.path.join(this_dir, 'test_data', 'mastermap-itn_417209_0_brixton_sample.gml')
@@ -484,22 +487,16 @@ if __name__ == '__main__':
 
     #Just build the network as usual
     itndata = read_gml(ITNFILE)
-    g = ITNStreetNet()
-    g.load_from_data(itndata)
+    g = ITNStreetNet.from_data_structure(itndata)
+    grid_edge_index = g.build_grid_edge_index(50)
 
     # generate some random points inside camden
-    import numpy as np
     xmin, ymin, xmax, ymax = g.extent
     grid_edge_idx = g.build_grid_edge_index(50)
 
     xs = np.random.rand(100)*(xmax - xmin) + xmin
     ys = np.random.rand(100)*(ymax - ymin) + ymin
     net_pts = [g.closest_segments_euclidean_brute_force(x, y)[1] for (x, y) in zip(xs, ys)]
-
-    # example: plotting with colours:
-    # fids = [x[2]['fid'] for x in g.g.edges(data=True)]
-    # cols = dict([(x,y) for x, y in zip(fids, np.random.random((len(fids), 3)))])
-    # g.plot_network_plain_col(cols, edge_width=5)
 
     #Four test points - 1 and 3 on same segment, 2 on neighbouring segment, 4 long way away.
     test_points = [
@@ -514,57 +511,64 @@ if __name__ == '__main__':
         [531459, 175075],
         [531007, 175037],
     ]
-    closest_edge = []
-    dist_along = []
-    network_points = []
-    kde_source_points = {}
+    source_points = []
 
     # Add these points as the kernel sources
     for i, t in enumerate(test_points):
-        net_point = g.closest_edges_euclidean(t[0], t[1], grid_edge_idx)
-        network_points.append(net_point)
-        # closest_edge.append(c)
-        # dist_along.append(d)
-        # network_points.append(NetworkPoint(g.g, **d))
-        kde_source_points['point%d' % i] = net_point
+        net_point, snap_distance = g.closest_edges_euclidean(t[0], t[1], grid_edge_index)
+        source_points.append(net_point)
 
+    # Initialise the kernel
+    TestKernel = EqualSplitKernel(g, source_points, 100)
 
-    #Initialise the kernel
-    TestKernel = EqualSplitKernel(g, kde_source_points, 100)
+    net_points, n_per_segment = utils.network_walker_uniform_sample_points(g, 2.)
 
-    #Both evaluation methods
-    ## TODO: see comments in evaluate_point for why these differ
-    print TestKernel.evaluate_non_point((closest_edge[1],dist_along[1]))
-    print TestKernel.evaluate_point('point1')
-
-    # define a whole load of points on the network for plotting
-    xy, cd, edge_count = network_point_coverage(g.g, dx=5)
-
-    # evaluate KDE at those points
     res = []
     failed = []
-    max_res = 0.
-    for arr in cd:
-        this_res = []
-        for t in arr:
-            try:
-                this_res.append(TestKernel.evaluate_non_point(t))
-            except KeyError as exc:
-                this_res.append(np.nan)
-                failed.append(repr(exc))
-        max_res = max(max_res, max(this_res))
-        res.append(this_res)
+    for pt in net_points.toarray(0):
+        try:
+            res.append(TestKernel.evaluate_non_point(pt))
+        except KeyError as exc:
+            res.append(np.nan)
+            failed.append(repr(exc))
+    res = np.array(res)
 
-    # plt.scatter(xy[:,0], xy[:,1], c=res, s=30, edgecolor='none')
-    # plt.colorbar()
+    # get values at nodes too
+    # this causes a zero division error - why??
+    # res_node = {}
+    # for node in g.nodes():
+    #     res_node[node] = TestKernel.evaluate_point(node)
 
-    plt.figure()
-    ax = plt.gca()
-    g.plot_network_plain(ax=ax, edge_width=6)
-    norm = plt.Normalize(0., max_res)
-    for i in range(len(cd)): # all segments
-        this_xy = np.array(xy[i])
-        colorline(this_xy[:, 0], this_xy[:, 1], z=res[i], norm=norm, linewidth=5, cmap=plt.get_cmap('jet'))
+    # optionally plot them
+    from network.plotting import colorline
+    from matplotlib import pyplot as plt
+    norm = plt.Normalize(0., np.nanmax(res[~np.isinf(res)]) * 0.98)
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    i = 0
+    for j, n in enumerate(n_per_segment):
+        # get x,y coords
+        this_edge = g.edges()[j]
+        this_sample_points = net_points.getrows(range(i, i + n))
+        this_sample_points_xy = this_sample_points.to_cartesian()
+        this_res = res[range(i, i + n)]
+
+        colorline(this_sample_points_xy.toarray(0),
+                  this_sample_points_xy.toarray(1),
+                  z=this_res,
+                  linewidth=5,
+                  cmap=plt.get_cmap('jet'),
+                  norm=norm
+        )
+        i += n
+
+    # plt.figure()
+    # ax = plt.gca()
+    # g.plot_network_plain(ax=ax, edge_width=6)
+    # norm = plt.Normalize(0., max_res)
+    # for i in range(len(cd)): # all segments
+    #     this_xy = np.array(xy[i])
+    #     colorline(this_xy[:, 0], this_xy[:, 1], z=res[i], norm=norm, linewidth=5, cmap=plt.get_cmap('jet'))
     plt.axis([xmin, xmax, ymin, ymax])
     plt.axis('equal')
 

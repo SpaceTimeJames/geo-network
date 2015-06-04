@@ -12,6 +12,12 @@ from utils import network_linkages, network_walker
 from validation import hotspot, roc
 import plotting
 
+def load_test_network():
+    # load some toy network data
+    test_data = read_gml(TEST_DATA_FILE)
+    return ITNStreetNet.from_data_structure(test_data)
+
+
 class TestNetworkData(unittest.TestCase):
 
     def setUp(self):
@@ -104,7 +110,10 @@ class TestUtils(unittest.TestCase):
         self.itn_net = ITNStreetNet.from_data_structure(self.test_data)
 
     def test_network_walker(self):
-        g = network_walker(itn_net)
+        g = network_walker(self.itn_net, repeat_edges=False, verbose=False)
+        res = list(g)
+        # if repeat_edges == False. every edge should be covered exactly once
+        self.assertEqual(len(res), len(self.itn_net.edges()))
         ## TODO: finish me
 
 
@@ -281,14 +290,94 @@ if __name__ == "__main__":
         #     j = n
 
     from network import utils
-    g = utils.network_walker(itn_net, verbose=True)
-    res = [g.next() for i in range(30)]
-    itn_net.plot_network()
-    fig = plt.gcf()
+    # n_iter = 30
+    g = utils.network_walker(itn_net, verbose=False, repeat_edges=False)
+    # res = [g.next() for i in range(n_iter)]
+    res = list(g)
 
-    for i in range(50):
-        plt.plot(*res[i][2].linestring.xy)
-        node_loc = itn_net.g.node[res[i][0][-1]]['loc']
-        plt.plot(node_loc[0], node_loc[1], 'o', markersize=10)
-        fig.savefig('/home/gabriel/tmp/%02d.png' % i)
+    import matplotlib.lines as mlines
+    import matplotlib.patches as mpatches
 
+    def add_arrow_to_line2D(
+        line,
+        axes=None,
+        arrowstyle='-|>',
+        arrowsize=1):
+        """
+        Add arrows to a matplotlib.lines.Line2D at the midpoint.
+
+        Parameters:
+        -----------
+        axes:
+        line: list of 1 Line2D obbject as returned by plot command
+        arrowstyle: style of the arrow
+        arrowsize: size of the arrow
+        transform: a matplotlib transform instance, default to data coordinates
+
+        Returns:
+        --------
+        arrows: list of arrows
+        """
+        axes = axes or plt.gca()
+        if (not(isinstance(line, list)) or not(isinstance(line[0],
+                                               mlines.Line2D))):
+            raise ValueError("expected a matplotlib.lines.Line2D object")
+        x, y = line[0].get_xdata(), line[0].get_ydata()
+
+        arrow_kw = dict(arrowstyle=arrowstyle, mutation_scale=10 * arrowsize)
+
+        color = line[0].get_color()
+        use_multicolor_lines = isinstance(color, np.ndarray)
+        if use_multicolor_lines:
+            raise NotImplementedError("multicolor lines not supported")
+        else:
+            arrow_kw['color'] = color
+
+        linewidth = line[0].get_linewidth()
+        if isinstance(linewidth, np.ndarray):
+            raise NotImplementedError("multiwidth lines not supported")
+        else:
+            arrow_kw['linewidth'] = linewidth
+
+        sc = np.concatenate(([0], np.cumsum(np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2))))
+        x0 = np.interp(0.45 * sc[-1], sc, x)
+        y0 = np.interp(0.45 * sc[-1], sc, y)
+        x1 = np.interp(0.55 * sc[-1], sc, x)
+        y1 = np.interp(0.55 * sc[-1], sc, y)
+        # s = np.cumsum(np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2))
+        # n = np.searchsorted(s, s[-1] * loc)
+        # arrow_tail = (x[n], y[n])
+        # arrow_head = (np.mean(x[n:n + 2]), np.mean(y[n:n + 2]))
+        arrow_tail = (x0, y0)
+        arrow_head = (x1, y1)
+        p = mpatches.FancyArrowPatch(
+            arrow_tail, arrow_head, transform=axes.transData,
+            **arrow_kw)
+        axes.add_patch(p)
+
+        return p
+
+    if b_plot:
+        fig = plt.figure(figsize=(16, 12))
+        itn_net.plot_network()
+
+        for i in range(len(res)):
+            node_loc = itn_net.g.node[res[i][0][-1]]['loc']
+            h = plt.plot(node_loc[0], node_loc[1], 'ko', markersize=10)[0]
+            edge_x, edge_y = res[i][2].linestring.xy
+            # which way are we walking?
+            if res[i][2].orientation_pos == res[i][0][-1]:
+                # need to reverse the linestring
+                edge_x = edge_x[::-1]
+                edge_y = edge_y[::-1]
+            line = plt.plot(edge_x, edge_y, 'k-')
+            add_arrow_to_line2D(line, arrowsize=2)
+            fig.savefig('/home/gabriel/tmp/%02d.png' % i)
+            h.remove()
+            if i + 1 == len(res):
+                # final image - save it 25 more times to have a nice lead out
+                for j in range(25):
+                    fig.savefig('/home/gabriel/tmp/%02d.png' % (j + i))
+
+    # run to stitch images together:
+    # avconv -r 10 -crf 20 -i "%02d.png" -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libx264 -pix_fmt yuv420p output.mp4

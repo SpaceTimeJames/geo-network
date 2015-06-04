@@ -81,22 +81,21 @@ class Edge(object):
         :param other:
         :return: Bool
         """
-        # if self.graph.directed:
+
         return (
             self.graph is other.graph and
             self.orientation_neg == other.orientation_neg and
             self.orientation_pos == other.orientation_pos and
             self.fid == other.fid
         )
-        # else:
-        #     return (
-        #         self.graph is other.graph and (
-        #             (self.orientation_neg == other.orientation_neg and self.orientation_pos == other.orientation_pos) or
-        #             (self.orientation_neg == other.orientation_pos and self.orientation_pos == other.orientation_neg)
-        #         ) and
-        #         self.fid == other.fid
-        #     )
 
+    def __hash__(self):
+        """
+        Hashing function for an edge, required to use it as a dictionary key.
+        I can't think how to get a graph-specific hash, so going to ignore that problem for now.
+        Apparently, in the case of clashing hash keys, equality is checked anyway?
+        """
+        return hash((self.orientation_neg, self.orientation_pos, self.fid))
 
 class NetPoint(object):
 
@@ -370,6 +369,10 @@ class StreetNet(object):
         ax.set_xlim(min_x,max_x)
         ax.set_ylim(min_y,max_y)
         ax.set_aspect('equal')
+        # remove x and y ticks as these rarely add anything
+        ax.set_xticks([])
+        ax.set_yticks([])
+
 
     def within_boundary(self, poly, outer_buffer=0):
 

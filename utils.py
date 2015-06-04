@@ -3,6 +3,9 @@ import numpy as np
 from point_process.utils import linkages, linkage_func_separable
 from data.models import CartesianSpaceTimeData
 import logging
+from streetnet import NetPoint
+from collections import OrderedDict
+import operator
 
 
 #TODO: update this to use a function too, then implement that in hotspot.STNetworkBowers
@@ -113,7 +116,11 @@ def get_next_node(edge, node):
     return edge.orientation_pos if edge.orientation_pos != node else edge.orientation_neg
 
 
-def network_walker(net_obj, source_node=None, max_distance=None, verbose=False):
+def network_walker(net_obj,
+                   source_node=None,
+                   max_distance=None,
+                   repeat_edges=False,
+                   verbose=False):
     """
     Generator, yielding (path, distance, edge) tuples giving the path taken, total distance travelled and
     edge of a network walker.
@@ -132,6 +139,8 @@ def network_walker(net_obj, source_node=None, max_distance=None, verbose=False):
 
     if source_node is None:
         source_node = net_obj.nodes()[0]
+
+    edges_seen = {}  # only used if repeat_edges = False
 
     #A list which monitors the current state of the path
     current_path = [source_node]
@@ -168,6 +177,15 @@ def network_walker(net_obj, source_node=None, max_distance=None, verbose=False):
 
         # otherwise, grab and remove the next edge to search
         this_edge = stack[-1].pop()
+
+        if not repeat_edges:
+            if this_edge in edges_seen:
+                logger.info("Have already seen this edge on iteration %d, so won't repeat it.", edges_seen[this_edge])
+                # skip to next iteration
+                continue
+            else:
+                logger.info("This is the first time we've walked this edge")
+                edges_seen[this_edge] = count
 
         logger.info("*** Generation %d ***", count)
         count += 1
@@ -206,75 +224,54 @@ def network_walker_uniform_sample_points(net_obj, interval, source_node=None):
     :param source_node: Optionally specify the node to start at. This will affect the outcome.
     :return:
     """
-    if source_node is None:
-        source_node = net_obj.nodes()[0]
+    g = network_walker(net_obj, source_node=source_node, repeat_edges=False)
+    points = OrderedDict()
+    n_per_edge = OrderedDict()
+    for e in net_obj.edges():
+        points[e] = None
+        n_per_edge[e] = None
 
-    sample_points = []
-    edges_visited = []
+    # points = []
+    # n_per_edge = []
+    for path, dist, edge in g:
+        el = edge.length
 
-    #A list which monitors the current state of the path
-    current_path = [source_node]
+        # next point location
+        npl = interval - dist % interval
 
-    # A list that records the distance to each step on the current path. This is initially equal to the distance from
-    # the point to the node.
-    dist = []
+        # distances along to deposit points
+        point_dists = np.arange(npl, el, interval)
 
-    # A stack that lists the next nodes to be searched. Each item in the stack
-    # is a list of edges accessible from the previous node, excluding a reversal.
-
-    stack = [net_obj.next_turn(source_node)]  # list of lists
-
-    #The stack will empty when the source has been exhausted
-    while stack:
-
-        print "Stack has length %d. Picking from top of the stack." % len(stack)
-
-        if not len(stack[-1]):
-            # no more nodes to search from previous edge
-            # remove the now empty list from the stack
-            stack.pop()
-            #Backtrack to the previous position on the current path
-            current_path.pop()
-            #Adjust the distance list to represent the new state of current_path too
-            dist.pop()
-
-            print "Options exhausted. Backtracking..."
-
-            # skip to next iteration
+        if not point_dists.size:
+            # this edge is too short - just place one point at the centroid
+            # points.append(edge.centroid)
+            # n_per_edge.append(1)
+            points[edge] = [edge.centroid]
+            n_per_edge[edge] = 1
             continue
+        else:
+            n_per_edge[edge] = point_dists.size
+            # n_per_edge.append(point_dists.size)
 
-        # otherwise, grab and remove the next edge to search
-        this_edge = stack[-1].pop()
+        # create the points
+        on = path[-1]
+        op = get_next_node(edge, path[-1])
 
-        print "Walking edge %s" % this_edge
+        points[edge] = []
+        for pd in point_dists:
+            node_dist = {
+                on: pd,
+                op: el - pd,
+            }
+            # points.append(NetPoint(net_obj, edge, node_dist))
+            points[edge].append(NetPoint(net_obj, edge, node_dist))
 
-        # Now test whether any targets lie on the new edge
-        for i, t in enumerate(reduced_targets.toarray(0)):
-            if t.edge == this_edge:
-                # get distance from current node to this point
-                dist_along = t.node_dist[current_path[-1]]
-                dist_between = dist[-1] + dist_along
-                print "Target %d is on this edge at a distance of %.2f" % (reduced_target_idx[i], dist_between)
-                if dist_between <= cutoff:
-                    print "Adding target %d to paths" % reduced_target_idx[i]
-                    paths[reduced_target_idx[i]].append((list(current_path), dist_between))
+    points = NetworkData(reduce(operator.add, points.values()))
+    # res = NetworkData(points)
+    # n_per_edge = np.array(n_per_edge)
+    n_per_edge = np.array(n_per_edge.values())
 
-        # Add the next node's edges to the stack if it hasn't already been visited and it's within reach
-        # TODO: if we need to support loops, then skip this checking stage?
-        if dist[-1] + this_edge.length <= cutoff:
-
-            # find the ID of the next node - whichever node we are not at right now
-            previous_node = node
-            node = get_next_node(this_edge, previous_node)
-            # has this node been visited already?
-            if node not in current_path:
-                print "Haven't visited this before, so adding to the stack."
-                stack.append(net_obj.next_turn(node, exclude_nodes=[previous_node]))
-                current_path.append(node)
-                dist.append(dist[-1] + this_edge.length)
-                print "We are now distance %.2f away from the source point" % dist[-1]
-            else:
-                print "We were already here on iteration %d so ignoring it" % (current_path.index(node) + 1)
+    return points, n_per_edge
 
 
 def network_linkage_walker(net_obj, source_point, target_points, cutoff):
