@@ -381,3 +381,16 @@ if __name__ == "__main__":
 
     # run to stitch images together:
     # avconv -r 10 -crf 20 -i "%02d.png" -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libx264 -pix_fmt yuv420p output.mp4
+
+    # network KDE stuff
+    from kde import models as kde_models, kernels
+    ## TODO: current implementation is centered around gaussians so, ridiculously, squares all bandwidths
+    a = kde_models.NetworkFixedBandwidthKde(training_data, bandwidths=[np.sqrt(5.), np.sqrt(50.)], parallel=False)
+    res = a.pdf(prediction_points_tnet)
+
+    if b_plot:
+        itn_net.plot_network()
+        plt.scatter(*training_data.space.to_cartesian().separate, c='r', s=80)
+        plt.scatter(*prediction_points_net.to_cartesian().separate, c=res/res.max(), s=40)
+
+

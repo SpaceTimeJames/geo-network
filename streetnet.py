@@ -120,6 +120,16 @@ class NetPoint(object):
         return street_net.closest_segments_euclidean_brute_force(x, y)[0]
 
     @property
+    def distance_positive(self):
+        """ Distance from the POSITIVE node """
+        return self.node_dist[self.edge.orientation_pos]
+
+    @property
+    def distance_negative(self):
+        """ Distance from the NEGATIVE node """
+        return self.node_dist[self.edge.orientation_neg]
+
+    @property
     def cartesian_coords(self):
         return self.graph.network_point_to_xy(self)
 
