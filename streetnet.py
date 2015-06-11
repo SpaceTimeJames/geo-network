@@ -160,6 +160,41 @@ class NetPoint(object):
         delta = np.array(self.cartesian_coords) - np.array(other.cartesian_coords)
         return sum(delta ** 2) ** 0.5
 
+    def linestring(self, node):
+        """ Partial edge linestring from/to the specified node. Direction is always neg to pos. """
+        if node == self.edge.orientation_neg:
+            return self.linestring_negative
+        elif node == self.edge.orientation_pos:
+            return self.linestring_positive
+        else:
+            raise AttributeError("Specified node is not one of the terminal edge nodes")
+
+    @property
+    def linestring_positive(self):
+        """ Partial edge linestring from point to positive node """
+        # get point coord using interp
+        x, y = self.edge.linestring.xy
+        d = np.concatenate(([0], np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2).cumsum()))
+        i = bs.bisect_left(d, self.distance_negative)
+        xp = np.interp(self.distance_negative, d, x)
+        yp = np.interp(self.distance_negative, d, y)
+        x = np.concatenate(([xp], x[i:]))
+        y = np.concatenate(([yp], y[i:]))
+        return LineString(zip(x, y))
+
+    @property
+    def linestring_negative(self):
+        """ Partial edge linestring from negative node to point """
+        # get point coord using interp
+        x, y = self.edge.linestring.xy
+        d = np.concatenate(([0], np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2).cumsum()))
+        i = bs.bisect_left(d, self.distance_negative)
+        xp = np.interp(self.distance_negative, d, x)
+        yp = np.interp(self.distance_negative, d, y)
+        x = np.concatenate((x[:i], [xp]))
+        y = np.concatenate((y[:i], [yp]))
+        return LineString(zip(x, y))
+
 
 class NetPath(object):
 

@@ -259,9 +259,10 @@ def network_walker_from_net_point(net_obj,
     # first edge to generate is always the edge on which net_point is located
     yield ([], 0., net_point.edge)
 
-    for g in [g_pos, g_neg]:
+    for g, d in zip([g_pos, g_neg], [net_point.distance_positive, net_point.distance_negative]):
         for t in g:
-            yield t
+            # add distance already walked
+            yield (t[0], t[1] + d, t[2])
 
 
 def network_walker_uniform_sample_points(net_obj, interval, source_node=None):
@@ -320,6 +321,50 @@ def network_walker_uniform_sample_points(net_obj, interval, source_node=None):
     n_per_edge = np.array(n_per_edge.values())
 
     return points, n_per_edge
+
+
+def network_walker_fixed_distance(net_obj, starting_net_point, distance):
+    """
+    Generate NetPoints at fixed distance from starting point
+    :param net_obj: StreetNet instance
+    :param starting_net_point: Starting point
+    :param distance: Distance to walk.
+    :return:
+    """
+    g = network_walker_from_net_point(net_obj, starting_net_point, repeat_edges=True, max_distance=distance)
+    end_points = []
+    paths = []
+
+    for path, dist, edge in g:
+        if not len(path):
+            # starting edge
+            # TODO: this will break if the starting edge is longer than distance
+            continue
+        el = edge.length
+        next_node = get_next_node(edge, path[-1])
+
+        if dist + el <= distance:
+            if net_obj.g.degree(next_node) == 1:
+                # terminal node
+                node_dist = {
+                    path[-1]: el,
+                    next_node: 0.,
+                }
+            else:
+                continue
+        else:
+            # how far along this edge can we walk?
+            da = distance - dist
+            # construct point
+            node_dist = {
+                path[-1]: da,
+                next_node: el - da
+            }
+        netp = NetPoint(net_obj, edge, node_dist)
+        end_points.append(netp)
+        paths.append(path)
+
+    return end_points, paths
 
 
 def network_paths_source_targets(net_obj, source, targets, max_search_distance, verbose=False):
