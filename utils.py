@@ -1,10 +1,10 @@
 __author__ = 'gabriel'
 import numpy as np
 from point_process.utils import linkages, linkage_func_separable
-from data.models import CartesianSpaceTimeData
+from data.models import CartesianSpaceTimeData, NetworkData
 import logging
-from streetnet import NetPoint
-from collections import OrderedDict
+from streetnet import NetPoint, Edge
+from collections import OrderedDict, defaultdict
 import operator
 
 
@@ -105,14 +105,25 @@ def network_linkages(data_source_net,
 
     return np.array(link_i), np.array(link_j), np.array(dt), np.array(dd)
 
-from data.models import NetworkData
-from collections import defaultdict
-from network.streetnet import Edge
-
 
 def get_next_node(edge, node):
     """ Get the ID of the node that is NOT node """
     return edge.orientation_pos if edge.orientation_pos != node else edge.orientation_neg
+
+
+class NetworkWalker(object):
+    """
+    Walks the network from a starting edge or node, generating all possible paths, optionally subject to a maximum
+    distance parameter.
+    """
+    def __init__(self, net_obj, targets,
+                 max_distance=None,
+                 repeat_edges=True):
+        self.net_obj = net_obj
+        self.targets = NetworkData(targets)
+        self.max_distance = max_distance
+        self.repeat_edges = repeat_edges
+
 
 
 def network_walker(net_obj,
