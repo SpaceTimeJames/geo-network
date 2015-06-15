@@ -8,7 +8,6 @@ from collections import OrderedDict
 import operator
 
 
-#TODO: update this to use a function too, then implement that in hotspot.STNetworkBowers
 def network_linkages(data_source_net,
                      linkage_fun,
                      data_source_txy=None,
@@ -94,7 +93,7 @@ def network_linkages(data_source_net,
 
         # recompute dt and dd, this time using NETWORK DISTANCE
         this_dt = (data_target_net.time.getrows(j) - data_source_net.time.getrows(i)).toarray(0)
-        this_dd = (data_target_net.space.getrows(j).distance(data_source_net.space.getrows(i))).toarray(0)
+        this_dd = (data_target_net.space.getrows(j).distance(data_source_net.space.getrows(i))).toarray(0)  # RATE-LIMIT
 
         # reapply the linkage threshold function
         mask_net = linkage_fun(this_dt, this_dd) & (this_dt > 0)
