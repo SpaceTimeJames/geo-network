@@ -597,11 +597,12 @@ class StreetNet(object):
 
             closest_edges.append((net_point, snap_distance))
 
-        if not len(closest_edges):
-            return None, None
-
         if max_edges == 1:
-            closest_edges = closest_edges[0]
+            if not len(closest_edges):
+                return None, None
+            else:
+                return closest_edges[0]
+        
         return closest_edges
 
 
