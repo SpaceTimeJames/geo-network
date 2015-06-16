@@ -262,7 +262,8 @@ if __name__ == "__main__":
             plt.colorbar()
 
     # get a roughly even coverage of points across the network
-    xy_points, net_points, edge_count = plotting.network_point_coverage(itn_net, dx=10)
+    net_points, edge_count = plotting.network_point_coverage(itn_net, dx=10)
+    xy_points = net_points.to_cartesian()
     c_edge_count = np.cumsum(edge_count)
 
     # make a 'prediction' for time 1.1

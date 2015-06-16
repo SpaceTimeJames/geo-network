@@ -118,12 +118,84 @@ class NetworkWalker(object):
     """
     def __init__(self, net_obj, targets,
                  max_distance=None,
-                 repeat_edges=True):
+                 repeat_edges=True,
+                 verbose=False):
+
         self.net_obj = net_obj
         self.targets = NetworkData(targets)
         self.max_distance = max_distance
         self.repeat_edges = repeat_edges
 
+        # logging
+        self.logger = logging.getLogger("NetworkWalker")
+        self.logger.handlers = []  # make sure logger has no handlers to begin with
+        if verbose:
+            self.logger.setLevel(logging.DEBUG)
+            self.logger.addHandler(logging.StreamHandler())
+        else:
+            self.logger.addHandler(logging.NullHandler())
+
+        # this dictionary keeps track of the walks already carried out
+        self.cached_walks = {}
+        self.cached_source_target_paths = {}
+
+    @property
+    def n_targets(self):
+        return self.targets.ndata
+
+    def caching_func(self, key, gen):
+        """ caches then yields the results of the supplied generator, using supplied key """
+        self.cached_walks[key] = []
+        for t in gen:
+            self.cached_walks[key].append(t)
+            yield t
+
+    def walk_from_node(self, start):
+        g = network_walker(self.net_obj,
+                           start,
+                           max_distance=self.max_distance,
+                           repeat_edges=self.repeat_edges,
+                           logger=self.logger)
+
+        return self.caching_func(start, g)
+
+    def walk_from_net_point(self, start):
+        g = network_walker_from_net_point(self.net_obj,
+                                          start,
+                                          max_distance=self.max_distance,
+                                          repeat_edges=self.repeat_edges,
+                                          logger=self.logger)
+
+        return self.caching_func(start, g)
+
+    def walker(self, start=None):
+        if start is None:
+            # default behaviour: start at the first node
+            start = self.net_obj.nodes()[0]
+
+        # try to retrieve from the cache
+        try:
+            return (t for t in self.cached_walks[start])
+        except KeyError:
+            # compute it from scratch
+            if hasattr(start, 'edge'):
+                return self.walk_from_net_point(start)
+            else:
+                return self.walk_from_node(start)
+
+    def source_to_targets(self, start):
+        try:
+            # look for cached result
+            return self.cached_source_target_paths[start]
+        except KeyError:
+            # compute it from scratch
+            paths = network_paths_source_targets(self.net_obj,
+                                             start,
+                                             self.targets,
+                                             self.max_distance,
+                                             logger=self.logger)
+            self.cached_source_target_paths[start] = paths
+            return paths
 
 
 def network_walker(net_obj,
@@ -131,7 +203,8 @@ def network_walker(net_obj,
                    max_distance=None,
                    repeat_edges=False,
                    initial_exclusion=None,
-                   verbose=False):
+                   verbose=False,
+                   logger=None):
     """
     Generator, yielding (path, distance, edge) tuples giving the path taken, total distance travelled and
     edge of a network walker.
@@ -144,14 +217,17 @@ def network_walker(net_obj,
     to False for search and sampling operations.
     :param initial_exclusion: Optionally provide the ID of a node to exclude when choosing the first 'step'. This is
     necessary when searching from a NetPoint.
+    :param verbose: If True, log debug info relating to the algorithm
+    :param logger: If supplied, use this logger and ignore the value of verbose.
     """
-    logger = logging.getLogger("network_walker.logger")
-    logger.handlers = []  # make sure logger has no handlers to begin with
-    if verbose:
-        logger.setLevel(logging.DEBUG)
-        logger.addHandler(logging.StreamHandler())
-    else:
-        logger.addHandler(logging.NullHandler())
+    if logger is None:
+        logger = logging.getLogger("network_walker.logger")
+        logger.handlers = []  # make sure logger has no handlers to begin with
+        if verbose:
+            logger.setLevel(logging.DEBUG)
+            logger.addHandler(logging.StreamHandler())
+        else:
+            logger.addHandler(logging.NullHandler())
 
     if initial_exclusion is not None and source_node is None:
         # this doesn't make any sense
@@ -240,7 +316,8 @@ def network_walker_from_net_point(net_obj,
                                   net_point,
                                   max_distance=None,
                                   repeat_edges=False,
-                                  verbose=False):
+                                  verbose=False,
+                                  logger=None):
     """
     Very similar to network_walker, but support starting from a NetPoint rather than a node on the network itself.
     Essentially this involves walking both ways from the point (i.e. start at pos then neg node), avoiding doubling back
@@ -258,13 +335,15 @@ def network_walker_from_net_point(net_obj,
                            max_distance=max_distance - net_point.distance_positive,
                            initial_exclusion=net_point.edge.orientation_neg,
                            repeat_edges=repeat_edges,
-                           verbose=verbose)
+                           verbose=verbose,
+                           logger=logger)
     g_neg = network_walker(net_obj,
                            source_node=net_point.edge.orientation_neg,
                            max_distance=max_distance - net_point.distance_negative,
                            initial_exclusion=net_point.edge.orientation_pos,
                            repeat_edges=repeat_edges,
-                           verbose=verbose)
+                           verbose=verbose,
+                           logger=logger)
 
     # first edge to generate is always the edge on which net_point is located
     yield ([], 0., net_point.edge)
@@ -377,7 +456,7 @@ def network_walker_fixed_distance(net_obj, starting_net_point, distance):
     return end_points, paths
 
 
-def network_paths_source_targets(net_obj, source, targets, max_search_distance, verbose=False):
+def network_paths_source_targets(net_obj, source, targets, max_search_distance, verbose=False, logger=None):
     target_points = NetworkData(targets)
     paths = defaultdict(list)
 
@@ -385,7 +464,8 @@ def network_paths_source_targets(net_obj, source, targets, max_search_distance, 
                                       source,
                                       max_distance=max_search_distance,
                                       repeat_edges=True,
-                                      verbose=verbose)
+                                      verbose=verbose,
+                                      logger=logger)
 
     target_distance = target_points.euclidean_distance(NetworkData([source] * target_points.ndata))
     reduced_target_idx = np.where(target_distance.toarray(0) <= max_search_distance)[0]

@@ -307,7 +307,6 @@ class StreetNet(object):
         return obj
 
     def build_network(self, data):
-
         raise NotImplementedError()
 
 
@@ -332,6 +331,38 @@ class StreetNet(object):
         '''
         raise NotImplementedError()
 
+    def shortest_edges_network(self):
+        """
+        Compute the Graph
+        """
+        if self.directed:
+            raise NotImplementedError()
+        # 99% of the work can be done in one line
+        g = nx.Graph(self.g)
+
+        # now identify where multiple lines existed and choose the shortest one
+        for x in self.g.edge.iteritems():
+            for y in x[1].iteritems():
+                if len(y[1]) > 1:
+                    # print "Multiple choice edge"
+                    # find the minimum length edge in old graph
+                    ls = [t['length'] for t in y[1].values()]
+                    fids = y[1].keys()
+
+                    # print "Arbitrarily chosen length: %f" % g.edge[x[0]][y[0]]['length']
+                    # print "Min length: %f" % min(ls)
+
+                    # if g.edge[x[0]][y[0]]['length'] != min(ls):
+                    #     print "Swapping edge..."
+
+                    # update new graph
+                    g.edge[x[0]][y[0]] = self.g.edge[x[0]][y[0]][fids[np.argmin(ls)]]
+
+                    # print "New length: %f" % g.edge[x[0]][y[0]]['length']
+
+        obj = self.__class__()
+        obj.g = g
+        return obj
 
     def plot_network(self,
                      ax=None,
@@ -566,9 +597,7 @@ class StreetNet(object):
                         candidate_edges.append(e)
 
         #candidate_edges now contains all candidates for closest edge
-
         #Calculate the distances to each
-        # candidate_edge_distances=[point.distance(LineString(self.g[n1][n2][fid]['polyline'])) for (n1,n2,fid) in candidate_edges]
         candidate_edge_distances=[point.distance(self.g[n1][n2][fid]['linestring']) for (n1, n2, fid) in candidate_edges]
 
         #Order the edges according to proximity, omitting those which are further than radius away
@@ -580,7 +609,6 @@ class StreetNet(object):
 
             #Do various proximity calculations
 
-            # polyline=LineString(self.g[n1][n2][fid]['polyline'])
             polyline = self.g[n1][n2][fid]['linestring']
 
             #node_dist is a lookup, indexed by each of the terminal nodes of closest_edge,
@@ -606,90 +634,101 @@ class StreetNet(object):
         return closest_edges
 
 
-    def path_undirected(self,net_point_from,net_point_to):
+    def path_undirected(self, net_point_from, net_point_to, length_only=False, method='bidirectional'):
 
-        n1_1 = net_point_from.edge.orientation_neg
-        n2_1 = net_point_from.edge.orientation_pos
-        fid_1 = net_point_from.edge.fid
+        known_methods = (
+            'single_source',
+            'bidirectional'
+        )
+        if method not in known_methods:
+            raise AttributeError("Unrecognised method")
 
-        n1_2 = net_point_to.edge.orientation_neg
-        n2_2 = net_point_to.edge.orientation_pos
-        fid_2 = net_point_to.edge.fid
+        node_from_neg = net_point_from.edge.orientation_neg
+        node_from_pos = net_point_from.edge.orientation_pos
+        fid_from = net_point_from.edge.fid
 
-        # n1_1,n2_1,fid_1=net_point1.edge
-        # n1_2,n2_2,fid_2=net_point2.edge
+        node_to_neg = net_point_to.edge.orientation_neg
+        node_to_pos = net_point_to.edge.orientation_pos
+        fid_to = net_point_to.edge.fid
 
-        node_dist1=net_point_from.node_dist
-        node_dist2=net_point_to.node_dist
+        node_dist_from = net_point_from.node_dist
+        node_dist_to = net_point_to.node_dist
 
         if net_point_from.edge == net_point_to.edge:  # both points on same edge
 
-            dist_diff = node_dist2[n1_1] - node_dist1[n1_1]
+            dist_diff = node_dist_to[node_from_neg] - node_dist_from[node_from_neg]
 
-            path_edges=[fid_1]
+            path_edges=[fid_from]
             path_distances=[abs(dist_diff)]
             path_nodes=[]
-
-            path=NetPath(net_point_from,net_point_to,path_edges,path_distances,path_nodes)
+            path = NetPath(net_point_from, net_point_to, path_edges, path_distances, path_nodes)
 
         else:
+            # Insert a new 'from' node
+            self.g.add_edge(node_from_neg, 'point1', key=fid_from, length=node_dist_from[node_from_neg])
+            self.g.add_edge('point1', node_from_pos, key=fid_from, length=node_dist_from[node_from_pos])
 
-            #Insert a fresh pair of nodes
-            self.g.add_edge(n1_1,'point1',key=fid_1,length=node_dist1[n1_1])
-            self.g.add_edge('point1',n2_1,key=fid_1,length=node_dist1[n2_1])
+            # store edge data before removal
+            removed_edge1_atts = self.g[node_from_neg][node_from_pos][fid_from]
+            self.g.remove_edge(node_from_neg, node_from_pos, fid_from)
 
-            #As above, store edge data before removal
-            removed_edge1_atts=self.g[n1_1][n2_1][fid_1]
+            #Insert a new 'to' node
+            self.g.add_edge(node_to_neg, 'point2', key=fid_to, length=node_dist_to[node_to_neg])
+            self.g.add_edge('point2', node_to_pos, key=fid_to, length=node_dist_to[node_to_pos])
 
-            self.g.remove_edge(n1_1,n2_1,fid_1)
-
-
-
-            #Insert a fresh pair of nodes
-            self.g.add_edge(n1_2,'point2',key=fid_2,length=node_dist2[n1_2])
-            self.g.add_edge('point2',n2_2,key=fid_2,length=node_dist2[n2_2])
-
-            #As above, store edge data before removal
-            removed_edge2_atts=self.g[n1_2][n2_2][fid_2]
-
-            self.g.remove_edge(n1_2,n2_2,fid_2)
-
+            # store edge data before removal
+            removed_edge2_atts = self.g[node_to_neg][node_to_pos][fid_to]
+            self.g.remove_edge(node_to_neg, node_to_pos, fid_to)
 
             #Get the path between the new nodes
-            #TODO: CONSIDER BIDIRECTIONAL DIJKSTRA
             try:
+                if method == 'single_source':
+                    # single_source_djikstra returns two dicts:
+                    # distances holds the shortest distance to each node en route from point1 to point2
+                    # paths holds the shortest partial path for each node en route from point1 to point2
 
-                distances, paths = nx.single_source_dijkstra(self.g,'point1',target='point2',weight='length')
+                    distances, paths = nx.single_source_dijkstra(self.g, 'point1', target='point2', weight='length')
+                    node_path = paths['point2']
+                    distance = distances['point2']
 
-                node_path=paths['point2']
+                if method == 'bidirectional':
+                    # bidirectional_dijkstra returns a scalar length and a list of nodes
+                    distance, node_path = nx.bidirectional_dijkstra(self.g, 'point1', target='point2', weight='length')
 
-                path_edges=[]
-                path_distances=[]
-                path_nodes=node_path[1:-1]
+                # if we only need a distance, can quit here
+                if length_only:
+                    return distance
 
-                for j in xrange(len(node_path)-1):
+                # to get a proper path, we need to stitch together the edges, choosing the shortest one each time.
 
-                    v=node_path[j]
-                    w=node_path[j+1]
+                path_edges = []
+                path_distances = []
+                path_nodes = node_path[1:-1]
 
-                    fid_shortest=min(self.g[v][w],key=lambda x: self.g[v][w][x]['length'])
+                for j in xrange(len(node_path) - 1):
+
+                    v = node_path[j]
+                    w = node_path[j+1]
+
+                    fid_shortest = min(self.g[v][w], key=lambda x: self.g[v][w][x]['length'])
 
                     path_edges.append(fid_shortest)
                     path_distances.append(self.g[v][w][fid_shortest]['length'])
 
-                path=NetPath(net_point_from,net_point_to,path_edges,path_distances,path_nodes)
+                path = NetPath(net_point_from, net_point_to, path_edges, path_distances, path_nodes)
 
-            except:
+            except Exception:
 
-                path=None
+                path = None
 
+            finally:
+                # Restore the network to original state
+                # This is run even after an early return, which is useful
+                self.g.remove_node('point1')
+                self.g.remove_node('point2')
 
-            #Restore the network to original state
-            self.g.remove_node('point1')
-            self.g.remove_node('point2')
-
-            self.g.add_edge(n1_1,n2_1,key=fid_1,attr_dict=removed_edge1_atts)
-            self.g.add_edge(n1_2,n2_2,key=fid_2,attr_dict=removed_edge2_atts)
+                self.g.add_edge(node_from_neg, node_from_pos, key=fid_from, attr_dict=removed_edge1_atts)
+                self.g.add_edge(node_to_neg, node_to_pos, key=fid_to, attr_dict=removed_edge2_atts)
 
         return path
 
@@ -712,7 +751,7 @@ class StreetNet(object):
 
         if fid_1==fid_2:
 
-            dist_diff=node_dist2[n1_1]-node_dist1[n1_1]
+            dist_diff = node_dist2[n1_1] - node_dist1[n1_1]
 
             if dist_diff==0:
 
