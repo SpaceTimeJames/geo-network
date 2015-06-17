@@ -155,6 +155,19 @@ class NetPoint(object):
         else:
             return self.graph.path_undirected(self, other)
 
+    def distance(self, other, method=None):
+        """
+        NetPoint.distance(NetPoint) -> scalar distance
+        :param method: optionally specify the algorithm used to compute distance.
+        """
+        if self.graph.directed:
+            # TODO: update the path_directed method to accept length_only kwarg
+            # return self.graph.path_directed(self, other, length_only=True, method=method)
+            return (self - other).length
+        else:
+            return self.graph.path_undirected(self, other, length_only=True, method=method)
+
+
     def euclidean_distance(self, other):
         # compute the Euclidean distance between two NetPoints
         delta = np.array(self.cartesian_coords) - np.array(other.cartesian_coords)
@@ -277,6 +290,7 @@ class StreetNet(object):
         self.g = nx.MultiGraph()
         self.g_routing = nx.MultiDiGraph()
         self.directed = routing.lower() == 'directed'
+        self.walker = None
 
 
     @classmethod
@@ -333,7 +347,7 @@ class StreetNet(object):
 
     def shortest_edges_network(self):
         """
-        Compute the Graph
+        Compute the Graph containing only the shortest edges between nodes.
         """
         if self.directed:
             raise NotImplementedError()
@@ -363,6 +377,9 @@ class StreetNet(object):
         obj = self.__class__()
         obj.g = g
         return obj
+
+    def set_network_walker(self, nw_obj):
+        self.walker = nw_obj
 
     def plot_network(self,
                      ax=None,
@@ -634,12 +651,14 @@ class StreetNet(object):
         return closest_edges
 
 
-    def path_undirected(self, net_point_from, net_point_to, length_only=False, method='bidirectional'):
+    def path_undirected(self, net_point_from, net_point_to, length_only=False, method=None):
 
         known_methods = (
             'single_source',
             'bidirectional'
         )
+        if method is None:
+            method = 'bidirectional'
         if method not in known_methods:
             raise AttributeError("Unrecognised method")
 
@@ -657,6 +676,9 @@ class StreetNet(object):
         if net_point_from.edge == net_point_to.edge:  # both points on same edge
 
             dist_diff = node_dist_to[node_from_neg] - node_dist_from[node_from_neg]
+
+            if length_only:
+                return abs(dist_diff)
 
             path_edges=[fid_from]
             path_distances=[abs(dist_diff)]
@@ -733,7 +755,7 @@ class StreetNet(object):
         return path
 
 
-    def path_directed(self, net_point_from, net_point_to):
+    def path_directed(self, net_point_from, net_point_to, **kwargs):
 
         n1_1 = net_point_from.edge.orientation_neg
         n2_1 = net_point_from.edge.orientation_pos

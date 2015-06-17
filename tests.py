@@ -73,7 +73,6 @@ class TestNetworkData(unittest.TestCase):
             self.assertEqual((net_points[i] - net_points[i]).length, 0.)
 
         net_point_array = models.NetworkData(net_points)
-        net_point_array_directed = models.DirectedNetworkData(net_points)
 
         self.assertFalse(np.any(net_point_array.distance(net_point_array).data.sum()))
 
