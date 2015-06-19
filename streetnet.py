@@ -131,7 +131,9 @@ class NetPoint(object):
 
     @property
     def cartesian_coords(self):
-        return self.graph.network_point_to_xy(self)
+        ls = self.edge['linestring']
+        pt = ls.interpolate(self.node_dist[self.edge.orientation_neg])
+        return pt.x, pt.y
 
     def test_compatible(self, other):
         if not self.graph is other.graph:
@@ -290,8 +292,6 @@ class StreetNet(object):
         self.g = nx.MultiGraph()
         self.g_routing = nx.MultiDiGraph()
         self.directed = routing.lower() == 'directed'
-        self.walker = None
-
 
     @classmethod
     def from_data_structure(cls, data):
@@ -378,8 +378,8 @@ class StreetNet(object):
         obj.g = g
         return obj
 
-    def set_network_walker(self, nw_obj):
-        self.walker = nw_obj
+    def degree(self, node):
+        return self.g.degree(node)
 
     def plot_network(self,
                      ax=None,
@@ -1013,7 +1013,7 @@ class StreetNet(object):
         else:
             bpoly = None
 
-        edges = self.edges(bounding_poly=bpoly)
+        edges = self.edges(bounding_poly=bpoly)  # FIXME: this looks inefficient?
         if not len(edges):
             # no valid edges found, bail.
             return None

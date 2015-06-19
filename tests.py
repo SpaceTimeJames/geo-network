@@ -384,8 +384,7 @@ if __name__ == "__main__":
 
     # network KDE stuff
     from kde import models as kde_models, kernels
-    ## TODO: current implementation is centered around gaussians so, ridiculously, squares all bandwidths
-    a = kde_models.NetworkFixedBandwidthKde(training_data, bandwidths=[np.sqrt(5.), np.sqrt(50.)], parallel=False)
+    a = kde_models.NetworkFixedBandwidthKde(training_data, bandwidths=[5., 50.], parallel=False)
     res = a.pdf(prediction_points_tnet)
 
     if b_plot:
