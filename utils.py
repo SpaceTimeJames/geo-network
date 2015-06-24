@@ -538,3 +538,45 @@ def network_paths_source_targets(net_obj,
                     paths[reduced_target_idx[i]].append((list(path), dist_between, splits))
 
     return paths
+
+
+def network_point_coverage(net, dx=None, include_nodes=True):
+    '''
+    Produce a series of semi-regularly-spaced points on the supplied network.
+    :param net: Network
+    :param dx: Optional spacing between points, otherwise this is automatically selected
+    :param include_nodes: If True, points are added at node locations too
+    :return: - NetworkData array of NetPoints, ordered by edge
+             - length E array of indices. Each gives the number of points in that edge
+    '''
+
+    # small delta to avoid errors
+    eps = 1e-6
+
+    ## temp set dx with a constant
+    xy = []
+    cd = []
+    edge_count = []
+    dx = dx or 1.
+
+    for edge in net.edges():
+        this_xy = []
+        this_cd = []
+        n_pt = int(np.math.ceil(edge['length'] / float(dx)))
+        interp_lengths = np.linspace(eps, edge['length'] - eps, n_pt)
+        # interpolate along linestring
+        ls = edge['linestring']
+        interp_pts = [ls.interpolate(t) for t in interp_lengths]
+
+        for i in range(interp_lengths.size):
+            this_xy.append((interp_pts[i].x, interp_pts[i].y))
+            node_dist = {
+                edge['orientation_neg']: interp_lengths[i],
+                edge['orientation_pos']: edge['length'] - interp_lengths[i],
+            }
+            this_cd.append(NetPoint(net, edge, node_dist))
+        xy.extend(this_xy)
+        cd.extend(this_cd)
+        edge_count.append(interp_lengths.size)
+
+    return NetworkData(cd), edge_count

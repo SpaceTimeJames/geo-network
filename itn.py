@@ -19,6 +19,7 @@ routing. Most of the cleaning methods are omitted here for brevity.
 
 Author: Toby Davies
 """
+from network.utils import network_point_coverage
 
 from shapely.geometry import Point, LineString, Polygon
 import xml.sax as sax
@@ -473,7 +474,7 @@ if __name__ == '__main__':
 
     from settings import DATA_DIR
     import os
-    from network.plotting import network_point_coverage, colorline
+    from network.plotting import colorline
     from network.tests import load_test_network
     from network import utils
     from kde.okabe import EqualSplitKernel

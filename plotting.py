@@ -3,8 +3,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.collections as mcoll
 import matplotlib.path as mpath
-from streetnet import Edge, NetPoint, NetPath
-from data.models import NetworkData
+from matplotlib import cm
+import bisect
+from descartes import PolygonPatch
+from shapely import geometry, ops
 
 def colorline(
     x, y, z=None, cmap=plt.get_cmap('copper'), norm=None,
@@ -51,46 +53,55 @@ def make_segments(x, y):
     return segments
 
 
-def network_point_coverage(net, dx=None, include_nodes=True):
-    '''
-    Produce a series of semi-regularly-spaced points on the supplied network.
-    :param net: Network
-    :param dx: Optional spacing between points, otherwise this is automatically selected
-    :param include_nodes: If True, points are added at node locations too
-    :return: - NetworkData array of NetPoints, ordered by edge
-             - length E array of indices. Each gives the number of points in that edge
-    '''
+def plot_network_edge_lines(lines,
+                            c=None,
+                            ax=None,
+                            line_buffer=10,
+                            alpha=0.75,
+                            cmap=plt.get_cmap('Reds'),
+                            fmax=1.0,
+                            autoscale=True,
+                            colorbar=True):
 
-    # small delta to avoid errors
-    eps = 1e-6
+    # buffer all lines to polygon
+    polys = [l.buffer(line_buffer) for l in lines]
+    n = len(lines)
 
-    ## temp set dx with a constant
-    xy = []
-    cd = []
-    edge_count = []
-    dx = dx or 1.
+    if c is not None:
+        assert 0. < fmax <= 1., "fmax must be between 0 and 1"
+        tmp = np.linspace(0, 1, len(lines))
+        idx = bisect.bisect_left(tmp, fmax)
+        vmax = sorted(c)[idx]
+        vmin = min(c)
+        norm = cm.colors.Normalize(vmin=vmin, vmax=vmax)
+        sm = cm.ScalarMappable(norm=norm, cmap=cmap)
+        sm.set_array(c)
+        patches = [PolygonPatch(polys[i], edgecolor='none', facecolor=sm.to_rgba(c[i]), alpha=alpha) for i in range(n)]
+    else:
+        combined = ops.cascaded_union(polys)
+        patches = [PolygonPatch(t, facecolor='none', edgecolor='k', linewidth=1, alpha=alpha) for t in combined]
 
-    for edge in net.edges():
-        this_xy = []
-        this_cd = []
-        n_pt = int(np.math.ceil(edge['length'] / float(dx)))
-        interp_lengths = np.linspace(eps, edge['length'] - eps, n_pt)
-        # interpolate along linestring
-        ls = edge['linestring']
-        interp_pts = [ls.interpolate(t) for t in interp_lengths]
+    coll = mcoll.PatchCollection(patches, match_original=True)
+    ax = ax or plt.gca()
+    ax.add_collection(coll)
+    plt.draw()
+    if autoscale:
+        ax.set_aspect('auto')
+    ax.set_aspect('equal')
 
-        for i in range(interp_lengths.size):
-            this_xy.append((interp_pts[i].x, interp_pts[i].y))
-            node_dist = {
-                edge['orientation_neg']: interp_lengths[i],
-                edge['orientation_pos']: edge['length'] - interp_lengths[i],
-            }
-            this_cd.append(NetPoint(net, edge, node_dist))
-        xy.extend(this_xy)
-        cd.extend(this_cd)
-        edge_count.append(interp_lengths.size)
+    if c is not None and colorbar:
+        plt.colorbar(sm)
 
-    return NetworkData(cd), edge_count
+    return coll
+
+
+def plot_network_density(lines, edge_values, fmax=0.99, **kwargs):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    plot_network_edge_lines(lines, c=edge_values, fmax=fmax, ax=ax, **kwargs)
+    plot_network_edge_lines(lines, ax=ax, **kwargs)
+    ax.set_xticks([])
+    ax.set_yticks([])
 
 
 if __name__ == "__main__":
