@@ -7,6 +7,8 @@ from matplotlib import cm
 import bisect
 from descartes import PolygonPatch
 from shapely import geometry, ops
+import os
+import datetime
 
 def colorline(
     x, y, z=None, cmap=plt.get_cmap('copper'), norm=None,
@@ -59,20 +61,30 @@ def plot_network_edge_lines(lines,
                             line_buffer=10,
                             alpha=0.75,
                             cmap=plt.get_cmap('Reds'),
-                            fmax=1.0,
+                            fmax=None,
+                            vmax=None,
                             autoscale=True,
-                            colorbar=True):
+                            colorbar=True,
+                            colorbar_values=False):
 
     # buffer all lines to polygon
     polys = [l.buffer(line_buffer) for l in lines]
     n = len(lines)
 
     if c is not None:
-        assert 0. < fmax <= 1., "fmax must be between 0 and 1"
-        tmp = np.linspace(0, 1, len(lines))
-        idx = bisect.bisect_left(tmp, fmax)
-        vmax = sorted(c)[idx]
-        vmin = min(c)
+        assert not (fmax is not None and vmax is not None), "either specify fmax or vmax, not both"
+
+        vmin = 0.
+        if fmax:
+            assert 0. < fmax <= 1., "fmax must be between 0 and 1"
+            tmp = np.linspace(0, 1, len(lines))
+            idx = bisect.bisect_left(tmp, fmax)
+            vmax = sorted(c)[idx]
+        elif vmax:
+            pass
+        else:
+            vmax = max(c)
+
         norm = cm.colors.Normalize(vmin=vmin, vmax=vmax)
         sm = cm.ScalarMappable(norm=norm, cmap=cmap)
         sm.set_array(c)
@@ -90,7 +102,11 @@ def plot_network_edge_lines(lines,
     ax.set_aspect('equal')
 
     if c is not None and colorbar:
-        plt.colorbar(sm)
+        fig = ax.get_figure()
+        if colorbar_values:
+            fig.colorbar(sm)
+        else:
+            fig.colorbar(sm, ticks=[])
 
     return coll
 
@@ -102,6 +118,48 @@ def plot_network_density(lines, edge_values, fmax=0.99, **kwargs):
     plot_network_edge_lines(lines, ax=ax, **kwargs)
     ax.set_xticks([])
     ax.set_yticks([])
+    plt.tight_layout()
+
+
+def network_density_movie_slides(vb, res, t0=None, outdir='network_density_slides'):
+    """
+    Create image files of network density over a series of predictions
+    :param vb: Validation object
+    :param res: The result of a validation run
+    :param t0: Optional datetime.date corresponding to time zero.
+    :param outdir: The output directory for images, which is created if necessary
+    :return: None
+    """
+
+    os.mkdir(outdir)
+    n = len(res['cutoff_t'])
+    idx = bisect.bisect_left(
+        np.linspace(0, 1, res['prediction_values'].size),
+        0.99
+    )
+    vmax = sorted(res['prediction_values'].flat)[idx]
+    lines = list(vb.graph.lines_iter())
+
+    for i in range(n):
+        fig = plt.figure(figsize=(10, 10))
+        ax = fig.add_subplot(111)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        plot_network_edge_lines(lines, c=res['prediction_values'][i], cmap=plt.get_cmap('copper'), vmax=vmax, ax=ax, line_buffer=20)
+        # plot_network_edge_lines(lines, ax=ax, line_buffer=20)
+        outfile = os.path.join(outdir, '%03d.png') % (i + 1)
+        if t0:
+            t = t0 + datetime.timedelta(days=res['cutoff_t'][i])
+            title = t.strftime("%d/%m/%Y")
+        else:
+            title = res['cutoff_t'][i]
+        plt.title(title, fontsize=24)
+        plt.tight_layout(pad=1.5)
+        plt.show()
+        plt.axis('auto')
+        plt.axis('equal')
+        plt.savefig(outfile, dpi=150)
+        plt.close(fig)
 
 
 if __name__ == "__main__":
