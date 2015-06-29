@@ -12,7 +12,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from utils import network_linkages, network_walker
 from validation import hotspot, roc
-import plotting
+
 
 def load_test_network():
     # load some toy network data
