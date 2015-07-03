@@ -1050,15 +1050,3 @@ class StreetNet(object):
             ymax = max(ymax, d)
 
         return xmin, ymin, xmax, ymax
-
-    ### ADDED BY GABS
-    def network_point_to_xy(self, net_point):
-        """
-        Convert a NetPoint to cartesian coordinates. This uses linear interpolation along the street segment.
-        Assumes that the linestring is defined from negative to positive end
-        :return: (x, y) coordinates corresponding to supplied point
-        """
-        ls = net_point.edge['linestring']
-        pt = ls.interpolate(net_point.node_dist[net_point.edge.orientation_neg])
-        return pt.x, pt.y
-
