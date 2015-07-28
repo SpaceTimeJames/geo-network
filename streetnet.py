@@ -8,13 +8,20 @@ import numpy as np
 from collections import defaultdict
 import bisect as bs
 import pysal as psl
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-from matplotlib.path import Path
-from matplotlib.collections import PatchCollection
-from matplotlib.colors import Normalize
-from matplotlib.colorbar import ColorbarBase
 import copy
+
+try:
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+    from matplotlib.path import Path
+    from matplotlib.collections import PatchCollection
+    from matplotlib.colors import Normalize
+    from matplotlib.colorbar import ColorbarBase
+    MPL = True
+except ImportError:
+    MPL = False
+
+
 
 class Edge(object):
 
