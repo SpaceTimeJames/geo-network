@@ -541,7 +541,7 @@ if __name__ == '__main__':
     #     res_node[node] = TestKernel.evaluate_point(node)
 
     # optionally plot them
-    from network.plotting import colorline
+    from network.plots import colorline
     from matplotlib import pyplot as plt
     norm = plt.Normalize(0., np.nanmax(res[~np.isinf(res)]) * 0.98)
     fig = plt.figure()
