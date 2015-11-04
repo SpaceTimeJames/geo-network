@@ -125,14 +125,14 @@ class OSMStreetNet(StreetNet):
     srid = 27700
     
     
-    def build_network(self,data):
+    def build_network(self, data):
         
         self.input_proj = pyproj.Proj(init='epsg:4326')
         self.output_proj = pyproj.Proj(init='epsg:%d' % self.srid)
         
         g_raw = nx.MultiGraph()
         
-        highways={way_id: way for way_id, way in osmdata.ways.iteritems() if 'highway' in way.tags}
+        highways={way_id: way for way_id, way in data.ways.iteritems() if 'highway' in way.tags}
         
         blacklist=['footway', 'service']
         blacklist=['service']
@@ -328,23 +328,21 @@ class OSMStreetNet(StreetNet):
 
 
 def read_data(filename):
-    CurrentHandler=OSMHandler()
-    sax.parse(filename,CurrentHandler)
-    CurrentData=OSMData(CurrentHandler.nodes,CurrentHandler.ways,CurrentHandler.relations)
-    return CurrentData
-
+    CurrentHandler = OSMHandler()
+    sax.parse(filename, CurrentHandler)
+    res = OSMData(CurrentHandler.nodes, CurrentHandler.ways, CurrentHandler.relations)
+    return res
 
 
 if __name__ == '__main__':
     import os
 
     this_dir = os.path.dirname(os.path.realpath(__file__))
-#    OSMFILE = os.path.join(this_dir, 'test_data', 'camden_fragment.osm')
-    OSMFILE = '/Users/tobydavies/osm_data_samples/camden_full.osm'
+    OSMFILE = os.path.join(this_dir, 'test_data', 'camden_fragment.osm')
+    # OSMFILE = '/Users/tobydavies/osm_data_samples/camden_full.osm'
     osmdata = read_data(OSMFILE)
-    o = OSMStreetNet()
-    o.load_from_data(osmdata)
-    
+    o = OSMStreetNet.from_data_structure(osmdata)
+
     min_x, min_y, max_x, max_y = o.extent
     ratio=(max_y-min_y)/(max_x-min_x)
     
