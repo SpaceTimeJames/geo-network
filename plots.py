@@ -69,7 +69,7 @@ def plot_network_edge_lines(lines,
 
     # buffer all lines to polygon
     polys = [l.buffer(line_buffer) for l in lines]
-    n = len(lines)
+    n = len(polys)
 
     if c is not None:
         assert not (fmax is not None and vmax is not None), "either specify fmax or vmax, not both"
