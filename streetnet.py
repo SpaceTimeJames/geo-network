@@ -420,7 +420,11 @@ class StreetNet(object):
             path_patches = []
 
             for e in self.edges():
-                fid = e['fid']
+                try:
+                    fid = e['fid']
+                except KeyError:
+                    import ipdb; ipdb.set_trace()
+
                 ls = e['linestring']
             # for n1,n2,fid,attr in self.g.edges(data=True, keys=True):
 

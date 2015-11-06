@@ -94,7 +94,9 @@ def plot_network_edge_lines(lines,
         patches = [PolygonPatch(t, facecolor='none', edgecolor='k', linewidth=1, alpha=alpha) for t in combined]
 
     coll = mcoll.PatchCollection(patches, match_original=True)
-    ax = ax or plt.gca()
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
     ax.add_collection(coll)
     plt.draw()
     if autoscale:

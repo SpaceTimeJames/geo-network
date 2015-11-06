@@ -64,7 +64,7 @@ class OSMHandler(sax.handler.ContentHandler):
         self.ways = {}
         self.relations = {}
     
-    def startElement(self,name,attrs):
+    def startElement(self, name, attrs):
         if name == 'node':
             self.id = attrs['id']
             self.tags = {}
@@ -89,7 +89,7 @@ class OSMHandler(sax.handler.ContentHandler):
         elif name == 'tag':
             self.tags[attrs['k']] = attrs['v']
     
-    def endElement(self,name):
+    def endElement(self, name):
         if name == 'node':
             self.nodes[self.id] = Node(self.id, self.geometry, self.tags)
             self.reset()
@@ -97,7 +97,7 @@ class OSMHandler(sax.handler.ContentHandler):
             self.ways[self.id] = Way(self.id, self.geometry, self.tags)
             self.reset()
         elif name == 'relation':
-            self.relations[self.id] = Relation(self.id,self.geometry,self.tags)
+            self.relations[self.id] = Relation(self.id, self.geometry, self.tags)
             self.reset()
     
     def reset (self):
@@ -125,34 +125,57 @@ class OSMStreetNet(StreetNet):
     srid = 27700
     
     
-    def build_network(self, data):
+    def build_network(self,
+                      data,
+                      blacklist=('service',)):
         
         self.input_proj = pyproj.Proj(init='epsg:4326')
         self.output_proj = pyproj.Proj(init='epsg:%d' % self.srid)
         
         g_raw = nx.MultiGraph()
         
-        highways={way_id: way for way_id, way in data.ways.iteritems() if 'highway' in way.tags}
+        highways = dict(
+            [(way_id, way) for way_id, way in data.ways.iteritems()
+             if 'highway' in way.tags
+             and way.tags['highway'] not in blacklist]
+        )
+
+        # blacklist=['footway', 'service']
+
+        # valid_highways = {way_id: way for way_id, way in highways.iteritems() if way.tags['highway'] not in blacklist}
         
-        blacklist=['footway', 'service']
-        blacklist=['service']
-        
-        valid_highways = {way_id: way for way_id, way in highways.iteritems() if way.tags['highway'] not in blacklist}
-        
-        for way_id, way in valid_highways.iteritems():
+        for way_id, way in highways.iteritems():
 
             for i in xrange(len(way.nds)-1):
                 g_raw.add_edge(way.nds[i], way.nds[i+1])
         
         for v in g_raw:
             if self.srid is not None:
-                g_raw.node[v]['loc']=pyproj.transform(self.input_proj, self.output_proj, *data.nodes[v].lonlat)
+                g_raw.node[v]['loc'] = pyproj.transform(self.input_proj, self.output_proj, *data.nodes[v].lonlat)
             else:
-                g_raw.node[v]['loc']=data.nodes[v].lonlat
+                g_raw.node[v]['loc'] = data.nodes[v].lonlat
             
         g = nx.MultiGraph()
+
+        # inline function for adding edges to avoid code repetition
+        def add_edge(node_list, edge_count, attrs):
+            # create unique key
+            key = "%s_%d" % (attrs['fid'], edge_count)
+            # define other attributes
+            polyline = [g_raw.node[v]['loc'] for v in node_list]
+            new_attr = dict(attrs)
+            # redefine the edge ID since the original ID is not unique
+            new_attr['fid'] = key
+            new_attr['linestring'] = LineString(polyline)
+            new_attr['length'] = new_attr['linestring'].length
+            new_attr['orientation_neg'] = node_list[0]
+            new_attr['orientation_pos'] = node_list[-1]
+
+            # close this edge and add to network
+
+            g.add_edge(node_list[0], node_list[-1], key=key, attr_dict=new_attr)
         
-        for way_id, way in valid_highways.iteritems():
+        for way_id, way in highways.iteritems():
             
             atts = {
                 'fid': way.feature_id,
@@ -164,32 +187,30 @@ class OSMStreetNet(StreetNet):
 
             if 'junction' in way.tags and way.tags['junction'] == 'roundabout':
                 atts['junction'] = 'roundabout'
+
+            # import ipdb; ipdb.set_trace()
             
-            current_edge_nds=[way.nds[0]]
-            
+            # start with the first node in this way
+            current_edge_nds = [way.nds[0]]
+            edge_count = 1
+
+            # loop over the remaining nodes
             for nd in way.nds[1:]:
                 current_edge_nds.append(nd)
-                if not (len(g_raw[nd])==2 and all([len(g_raw[nd][x])==1 for x in g_raw[nd]])):
-                    polyline = [g_raw.node[v]['loc'] for v in current_edge_nds]
-                    atts['linestring'] = LineString(polyline)
-                    atts['length'] = atts['linestring'].length
-                    atts['orientation_neg']=current_edge_nds[0]
-                    atts['orientation_pos']=current_edge_nds[-1]
-                    
-                    g.add_edge(current_edge_nds[0],current_edge_nds[-1],attr_dict=atts)
-                    
-                    current_edge_nds=[nd]
-                
-            if len(current_edge_nds)>1:
-                
-                polyline = [g_raw.node[v]['loc'] for v in current_edge_nds]
-                atts['linestring'] = LineString(polyline)
-                atts['length'] = atts['linestring'].length
-                atts['orientation_neg']=current_edge_nds[0]
-                atts['orientation_pos']=current_edge_nds[-1]
-                
-                g.add_edge(current_edge_nds[0],current_edge_nds[-1],attr_dict=atts)
-                
+
+                # edge continuation conditions:
+                # (1) Current node must have order 2
+                # (2) The two nodes connected to current node must be joined by only one edge
+                # if these are not fulfilled, end the edge
+                if not (len(g_raw[nd]) == 2 and all([len(g_raw[nd][x]) == 1 for x in g_raw[nd]])):
+                    add_edge(current_edge_nds, edge_count, atts)
+                    edge_count += 1
+
+            # all nodes in this way are exhausted, so check whether there is a final edge to be added
+            if len(current_edge_nds) > 1:
+                # add final edge
+                add_edge(current_edge_nds, edge_count, atts)
+
         # Only want the largest connected component - sometimes fragments appear
         # round the edge - so take that.
         # NB this interface has changed with NetworkX v1.9
