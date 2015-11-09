@@ -15,13 +15,7 @@ import xml.sax as sax
 import pyproj
 import pickle as pk
 import networkx as nx
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-from matplotlib.path import Path
 from distutils.version import StrictVersion
-import ModestMaps as mm
-from ModestMaps import Geo
-from ModestMaps import OpenStreetMap
 import numpy as np
 
 from streetnet import StreetNet
@@ -357,7 +351,9 @@ def read_data(filename):
 
 if __name__ == '__main__':
     import os
-
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+    from matplotlib.path import Path
     this_dir = os.path.dirname(os.path.realpath(__file__))
     OSMFILE = os.path.join(this_dir, 'test_data', 'camden_fragment.osm')
     # OSMFILE = '/Users/tobydavies/osm_data_samples/camden_full.osm'

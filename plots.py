@@ -11,7 +11,7 @@ import os
 import datetime
 
 def colorline(
-    x, y, z=None, cmap=plt.get_cmap('copper'), norm=None,
+    x, y, z=None, cmap=plt.get_cmap('copper'), norm=None, ax=None,
         linewidth=3, alpha=1.0):
     """
     http://nbviewer.ipython.org/github/dpsanders/matplotlib-examples/blob/master/colorline.ipynb
@@ -37,7 +37,7 @@ def colorline(
     lc = mcoll.LineCollection(segments, array=z, cmap=cmap, norm=norm,
                               linewidth=linewidth, alpha=alpha)
 
-    ax = plt.gca()
+    ax = ax if ax is None else plt.gca()
     ax.add_collection(lc)
 
     return lc
@@ -74,12 +74,14 @@ def plot_network_edge_lines(lines,
     if c is not None:
         assert not (fmax is not None and vmax is not None), "either specify fmax or vmax, not both"
 
+        sort_idx = np.argsort(c)
+
         vmin = 0.
         if fmax:
             assert 0. < fmax <= 1., "fmax must be between 0 and 1"
             tmp = np.linspace(0, 1, len(lines))
             idx = bisect.bisect_left(tmp, fmax)
-            vmax = sorted(c)[idx]
+            vmax = np.array(c)[sort_idx][idx]
         elif vmax:
             pass
         else:
@@ -88,7 +90,10 @@ def plot_network_edge_lines(lines,
         norm = cm.colors.Normalize(vmin=vmin, vmax=vmax)
         sm = cm.ScalarMappable(norm=norm, cmap=cmap)
         sm.set_array(c)
-        patches = [PolygonPatch(polys[i], edgecolor='none', facecolor=sm.to_rgba(c[i]), alpha=alpha) for i in range(n)]
+        patches = [
+            PolygonPatch(polys[sort_idx[i]], edgecolor='none', facecolor=sm.to_rgba(c[sort_idx[i]]), alpha=alpha)
+            for i in range(n)
+        ]
     else:
         combined = ops.cascaded_union(polys)
         patches = [PolygonPatch(t, facecolor='none', edgecolor='k', linewidth=1, alpha=alpha) for t in combined]
