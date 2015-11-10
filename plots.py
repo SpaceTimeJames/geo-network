@@ -152,8 +152,60 @@ def network_density_movie_slides(vb, res, t0=None, outdir='network_density_slide
         ax = fig.add_subplot(111)
         ax.set_xticks([])
         ax.set_yticks([])
+
         plot_network_edge_lines(lines, c=res['prediction_values'][i], cmap=plt.get_cmap('copper'), vmax=vmax, ax=ax, line_buffer=20)
         # plot_network_edge_lines(lines, ax=ax, line_buffer=20)
+        outfile = os.path.join(outdir, '%03d.png') % (i + 1)
+        if t0:
+            t = t0 + datetime.timedelta(days=res['cutoff_t'][i])
+            title = t.strftime("%d/%m/%Y")
+        else:
+            title = res['cutoff_t'][i]
+        plt.title(title, fontsize=24)
+        plt.tight_layout(pad=1.5)
+        plt.show()
+        plt.axis('auto')
+        plt.axis('equal')
+        plt.savefig(outfile, dpi=150)
+        plt.close(fig)
+
+
+def network_density_movie_slides2(vb,
+                                  res,
+                                  t0=None,
+                                  fmax=None,
+                                  line_buffer=10,
+                                  colorbar=False,
+                                  outdir='network_density_slides'):
+    """
+    Create image files of network density over a series of predictions
+    :param vb: Validation object
+    :param res: The result of a validation run
+    :param t0: Optional datetime.date corresponding to time zero.
+    :param outdir: The output directory for images, which is created if necessary
+    :return: None
+    """
+
+    os.mkdir(outdir)
+    fmax = fmax or 0.99
+    n = len(res['cutoff_t'])
+    idx = bisect.bisect_left(
+        np.linspace(0, 1, res['prediction_values'].size),
+        fmax
+    )
+    vmax = sorted(res['prediction_values'].flat)[idx]
+    lines = list(vb.graph.lines_iter())
+    xy = vb.sample_points.to_cartesian()
+
+    for i in range(n):
+        z = vb.model.predict(res['cutoff_t'][i], None)  # no spatial points needed: reuse sample points
+        z[z > vmax] = vmax
+        fig = plt.figure(figsize=(10, 10))
+        ax = fig.add_subplot(111)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.scatter(xy.toarray(0), xy.toarray(1), c=z, edgecolor='none', cmap='Reds')
+        plot_network_edge_lines(lines, ax=ax, line_buffer=line_buffer, colorbar=colorbar)
         outfile = os.path.join(outdir, '%03d.png') % (i + 1)
         if t0:
             t = t0 + datetime.timedelta(days=res['cutoff_t'][i])
