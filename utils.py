@@ -496,6 +496,8 @@ def network_paths_source_targets(net_obj,
                                       logger=logger)
 
     # Cartesian filtering by nodes
+    ## FIXME: this seems to be missing out the case where both nodes are more distant than the cutoff...
+    # in this case, no source <-> target links are returned, even though there may be many on the same edge.
     target_nodes_pos = CartesianData([t.edge.node_pos_coords for t in target_points.toarray(0)])
     target_nodes_neg = CartesianData([t.edge.node_neg_coords for t in target_points.toarray(0)])
     source_xy_tiled = CartesianData([source.cartesian_coords] * target_points.ndata)
