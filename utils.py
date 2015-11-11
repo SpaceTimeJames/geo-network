@@ -500,6 +500,9 @@ def network_paths_source_targets(net_obj,
     # in this case, no source <-> target links are returned, even though there may be many on the same edge.
     target_nodes_pos = CartesianData([t.edge.node_pos_coords for t in target_points.toarray(0)])
     target_nodes_neg = CartesianData([t.edge.node_neg_coords for t in target_points.toarray(0)])
+    # Find the targets on the source edge and include these explicitly.
+    # This is required for longer edges, where neither of the edge nodes are within max_search distance
+    on_this_edge = np.array([t.edge == source.edge for t in target_points.toarray(0)])
     source_xy_tiled = CartesianData([source.cartesian_coords] * target_points.ndata)
 
     target_distance_pos = target_nodes_pos.distance(source_xy_tiled)
@@ -507,7 +510,8 @@ def network_paths_source_targets(net_obj,
 
     reduced_target_idx = np.where(
         (target_distance_pos.toarray(0) <= max_search_distance) |
-        (target_distance_neg.toarray(0) <= max_search_distance)
+        (target_distance_neg.toarray(0) <= max_search_distance) |
+        on_this_edge
     )[0]
     reduced_targets = target_points.getrows(reduced_target_idx)
 
