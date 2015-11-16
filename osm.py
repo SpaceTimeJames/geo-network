@@ -102,7 +102,7 @@ class OSMHandler(sax.handler.ContentHandler):
 
 class OSMData():
     
-    def __init__(self,nodes,ways,relations):
+    def __init__(self, nodes, ways, relations):
         self.nodes = nodes
         self.ways = ways
         self.relations = relations
@@ -116,8 +116,6 @@ class OSMData():
 class OSMStreetNet(StreetNet):
 
     input_srid = 4326
-    srid = 27700
-    
     
     def build_network(self,
                       data,
@@ -134,21 +132,18 @@ class OSMStreetNet(StreetNet):
              and way.tags['highway'] not in blacklist]
         )
 
-        # blacklist=['footway', 'service']
-
-        # valid_highways = {way_id: way for way_id, way in highways.iteritems() if way.tags['highway'] not in blacklist}
-        
+        # iterate over ways, adding edges and nodes (nodes are added automatically if they do not exist)
         for way_id, way in highways.iteritems():
-
             for i in xrange(len(way.nds)-1):
                 g_raw.add_edge(way.nds[i], way.nds[i+1])
-        
+
+        # add node locations to the raw network
         for v in g_raw:
             if self.srid is not None:
                 g_raw.node[v]['loc'] = pyproj.transform(self.input_proj, self.output_proj, *data.nodes[v].lonlat)
             else:
                 g_raw.node[v]['loc'] = data.nodes[v].lonlat
-            
+
         g = nx.MultiGraph()
 
         # inline function for adding edges to avoid code repetition
@@ -191,7 +186,6 @@ class OSMStreetNet(StreetNet):
             # loop over the remaining nodes
             for nd in way.nds[1:]:
                 current_edge_nds.append(nd)
-
                 # edge continuation conditions:
                 # (1) Current node must have order 2
                 # (2) The two nodes connected to current node must be joined by only one edge

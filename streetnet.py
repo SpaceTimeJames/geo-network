@@ -289,20 +289,20 @@ class StreetNet(object):
     and bloated.
     '''
 
-    def __init__(self, routing='undirected'):
+    def __init__(self, routing='undirected', srid=27700):
         '''
         This just initialises a fresh empty network in each new class. Will be
         overwritten but just ensures that stuff won't break.
         :param routing: Defines the behaviour upon subtracting two NetPoints
         '''
-
+        self.srid = srid
         self.g = nx.MultiGraph()
         self.g_routing = nx.MultiDiGraph()
         self.directed = routing.lower() == 'directed'
 
     @classmethod
-    def from_data_structure(cls, data):
-        obj = cls()
+    def from_data_structure(cls, data, srid=None):
+        obj = cls(srid=srid)
         print 'Building the network'
         obj.build_network(data)
 
@@ -478,7 +478,7 @@ class StreetNet(object):
         ax.set_yticks([])
 
 
-    def within_boundary(self, poly, outer_buffer=0):
+    def within_boundary(self, poly, outer_buffer=0, clip_lines=True):
 
         '''
         This cuts out only the part of the network which lies within some specified
@@ -486,6 +486,8 @@ class StreetNet(object):
         of values, and then a lot of the work is done by Shapely.
 
         A buffer can also be passed - this enlarges the boundary in the obvious way.
+
+        If clip_lines=True, any lines partially intersecting the region are clipped to within it.
 
         This is an example of the 'inheritance' method - a whole new network is
         produced, and the output of the routine is a new instance of ITNStreetNet.
@@ -501,12 +503,13 @@ class StreetNet(object):
         boundary=boundary.buffer(outer_buffer)
 
         #Loop the edges
-        for n1,n2,fid,attr in self.g.edges(data=True,keys=True):
+        for n1, n2, fid, attr in self.g.edges(data=True, keys=True):
             #Make a shapely polyline for each
             # edge_line=LineString(attr['polyline'])
             edge_line = attr['linestring']
 
             #Check intersection
+            import ipdb; ipdb.set_trace()
             if edge_line.intersects(boundary):
                 #Add edge to new graph
                 g_new.add_edge(n1,n2,key=fid,attr_dict=attr)
