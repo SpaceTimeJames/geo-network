@@ -151,6 +151,7 @@ class OSMStreetNet(StreetNet):
             # create unique key
             key = "%s_%d" % (attrs['fid'], edge_count)
             # define other attributes
+            # polyline: runs from negative to positive
             polyline = [g_raw.node[v]['loc'] for v in node_list]
             new_attr = dict(attrs)
             # redefine the edge ID since the original ID is not unique
@@ -193,6 +194,8 @@ class OSMStreetNet(StreetNet):
                 if not (len(g_raw[nd]) == 2 and all([len(g_raw[nd][x]) == 1 for x in g_raw[nd]])):
                     add_edge(current_edge_nds, edge_count, atts)
                     edge_count += 1
+                    # reset the current node list
+                    current_edge_nds = [nd]
 
             # all nodes in this way are exhausted, so check whether there is a final edge to be added
             if len(current_edge_nds) > 1:

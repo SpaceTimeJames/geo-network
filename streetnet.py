@@ -1,6 +1,6 @@
 __author__ = 'Toby, refactor by Gabs'
 
-from shapely.geometry import Point, LineString, Polygon
+from shapely.geometry import Point, LineString, Polygon, MultiLineString
 import networkx as nx
 import cPickle
 import scipy as sp
@@ -494,29 +494,66 @@ class StreetNet(object):
         '''
 
         #Create new graph
-        g_new=nx.MultiGraph()
+        g_new = nx.MultiGraph()
 
         #Make a shapely polygon from the boundary
-        boundary=Polygon(poly)
+        boundary = Polygon(poly)
 
         #Buffer it
-        boundary=boundary.buffer(outer_buffer)
+        boundary = boundary.buffer(outer_buffer)
+
+        # dict to store the location of any nodes that need moving
+        node_shift = {}
 
         #Loop the edges
         for n1, n2, fid, attr in self.g.edges(data=True, keys=True):
-            #Make a shapely polyline for each
-            # edge_line=LineString(attr['polyline'])
             edge_line = attr['linestring']
+            n_neg = attr['orientation_neg']
+            n_pos = attr['orientation_pos']
+            pt_pos = Point(self.g.node[n_pos]['loc'])
+            pt_neg = Point(self.g.node[n_neg]['loc'])
 
             #Check intersection
-            import ipdb; ipdb.set_trace()
-            if edge_line.intersects(boundary):
-                #Add edge to new graph
-                g_new.add_edge(n1,n2,key=fid,attr_dict=attr)
+            if pt_neg.within(boundary) and pt_pos.within(boundary):
+                g_new.add_edge(n1, n2, key=fid, attr_dict=attr)
+
+            elif edge_line.intersects(boundary):
+                if clip_lines:
+                    # copy the dictionary so we don't change the original
+                    attr = dict(attr)
+                    # don't clip if both nodes are inside the boundary
+                    # clip polyline
+                    new_edge = edge_line.intersection(boundary)
+                    # sometimes this results in a MultiLineString
+                    # when this happens, just add the old line
+                    if isinstance(new_edge, MultiLineString):
+                        g_new.add_edge(n1, n2, key=fid, attr_dict=attr)
+                        continue
+                    # mark one or both of the nodes as clipped
+                    if not pt_neg.within(boundary):
+                        n_neg += '_clip'
+                        attr['orientation_neg'] += '_clip'
+                        node_shift[n_neg] = new_edge.coords[0]
+                    if not pt_pos.within(boundary):
+                        n_pos += '_clip'
+                        attr['orientation_pos'] += '_clip'
+                        node_shift[n_pos] = new_edge.coords[-1]
+                    # update attribute dict
+                    attr['length'] = new_edge.length
+                    attr['linestring'] = new_edge
+                    n1 = n_neg
+                    n2 = n_pos
+
+                g_new.add_edge(n1, n2, key=fid, attr_dict=attr)
 
         #Add all nodes to the new posdict
         for v in g_new:
-            g_new.node[v]['loc']=self.g.node[v]['loc']
+            if '_clip' in v:
+                # find the new (clipped) location of this node
+                loc = node_shift[v]
+            else:
+                loc = self.g.node[v]['loc']
+            g_new.node[v]['loc'] = loc
 
         # generate a new object from this multigraph
         return self.__class__.from_multigraph(g_new)
