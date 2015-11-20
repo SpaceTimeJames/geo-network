@@ -472,12 +472,7 @@ def read_gml(filename):
 
 if __name__ == '__main__':
 
-    from settings import DATA_DIR
     import os
-    from network.plotting import colorline
-    from network.tests import load_test_network
-    from network import utils
-    from kde.okabe import EqualSplitKernel
     import numpy as np
 
     this_dir = os.path.dirname(os.path.realpath(__file__))
@@ -518,65 +513,3 @@ if __name__ == '__main__':
     for i, t in enumerate(test_points):
         net_point, snap_distance = g.closest_edges_euclidean(t[0], t[1], grid_edge_index)
         source_points.append(net_point)
-
-    # Initialise the kernel
-    TestKernel = EqualSplitKernel(g, source_points, 100)
-
-    net_points, n_per_segment = utils.network_walker_uniform_sample_points(g, 2.)
-
-    res = []
-    failed = []
-    for pt in net_points.toarray(0):
-        try:
-            res.append(TestKernel.evaluate_non_point(pt))
-        except KeyError as exc:
-            res.append(np.nan)
-            failed.append(repr(exc))
-    res = np.array(res)
-
-    # get values at nodes too
-    # this causes a zero division error - why??
-    # res_node = {}
-    # for node in g.nodes():
-    #     res_node[node] = TestKernel.evaluate_point(node)
-
-    # optionally plot them
-    from network.plots import colorline
-    from matplotlib import pyplot as plt
-    norm = plt.Normalize(0., np.nanmax(res[~np.isinf(res)]) * 0.98)
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    i = 0
-    for j, n in enumerate(n_per_segment):
-        # get x,y coords
-        this_edge = g.edges()[j]
-        this_sample_points = net_points.getrows(range(i, i + n))
-        this_sample_points_xy = this_sample_points.to_cartesian()
-        this_res = res[range(i, i + n)]
-
-        colorline(this_sample_points_xy.toarray(0),
-                  this_sample_points_xy.toarray(1),
-                  z=this_res,
-                  linewidth=5,
-                  cmap=plt.get_cmap('jet'),
-                  norm=norm
-        )
-        i += n
-
-    # plt.figure()
-    # ax = plt.gca()
-    # g.plot_network_plain(ax=ax, edge_width=6)
-    # norm = plt.Normalize(0., max_res)
-    # for i in range(len(cd)): # all segments
-    #     this_xy = np.array(xy[i])
-    #     colorline(this_xy[:, 0], this_xy[:, 1], z=res[i], norm=norm, linewidth=5, cmap=plt.get_cmap('jet'))
-    plt.axis([xmin, xmax, ymin, ymax])
-    plt.axis('equal')
-
-    ax.xaxis.set_ticks([])
-    ax.yaxis.set_ticks([])
-
-    # add circles to sources to show cartesian equivalent
-    for tp in test_points:
-        circ = plt.Circle(tp, 100, facecolor='none', edgecolor='k', alpha=0.5)
-        ax.add_patch(circ)
