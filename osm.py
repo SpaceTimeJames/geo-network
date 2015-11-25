@@ -355,7 +355,7 @@ if __name__ == '__main__':
     OSMFILE = os.path.join(this_dir, 'test_data', 'camden_fragment.osm')
     # OSMFILE = '/Users/tobydavies/osm_data_samples/camden_full.osm'
     osmdata = read_data(OSMFILE)
-    o = OSMStreetNet.from_data_structure(osmdata)
+    o = OSMStreetNet.from_data_structure(osmdata, srid=27700)
 
     min_x, min_y, max_x, max_y = o.extent
     ratio=(max_y-min_y)/(max_x-min_x)

@@ -327,9 +327,61 @@ class StreetNet(object):
         obj.build_routing_network()
         return obj
 
+    def save(self, filename, fmt='pickle'):
+        '''
+        Save the network to a file
+        '''
+        if fmt == 'pickle':
+            with open(filename, 'wb') as f:
+                cPickle.dump(self, f)
+
+        elif fmt in ('shp', 'shapefile'):
+            self.save_to_shapefile(filename)
+        else:
+            raise ValueError("Supported fmt values are 'pickle', 'shp'.")
+
+    def save_to_shapefile(self, filename):
+        import shapefile
+        w = shapefile.Writer(shapefile.POLYLINE)
+        # get edge fields and types
+        fields = {}
+        lens = {}
+        short_names = {}
+        for e in self.edges():
+            for f in e.attrs:
+                if f not in fields:
+                    # shorten name if necessary (10 character limit in shapefiles)
+                    short_name = f.replace('orientation', 'orient')
+                    short_names[f] = short_name
+                    if isinstance(e.attrs[f], str) or isinstance(e.attrs[f], unicode):
+                        fields[f] = 'C'
+                        lens[f] = len(e.attrs[f])
+                    elif isinstance(e.attrs[f], float):
+                        fields[f] = 'F'
+                    elif isinstance(e.attrs[f], int):
+                        fields[f] = 'N'
+                elif fields[f] == 'C':
+                    # keep track of max length
+                    lens[f] = max(len(e.attrs[f]), lens[f])
+        for f in fields:
+            if f in short_names:
+                field_name = short_names[f]
+            else:
+                field_name = f
+            if fields[f] == 'C':
+                w.field(field_name, fieldType='C', size=str(lens[f]))
+            elif fields[f] == 'F':
+                w.field(field_name, 'F', 12, 6)
+            else:
+                w.field(field_name, 'N', 12)
+        for e in self.edges():
+            w.line(parts=[e.linestring.coords[:]])
+            rec = dict([(short_names.get(f, f), e.attrs.get(f, None)) for f in fields])
+            w.record(**rec)
+        w.save(filename)
+
     def build_network(self, data):
         raise NotImplementedError()
-
 
     def build_posdict(self, data):
         '''
@@ -337,7 +389,6 @@ class StreetNet(object):
         really useful for plotting.
         '''
         raise NotImplementedError()
-
 
     def build_routing_network(self):
         '''
@@ -557,14 +608,6 @@ class StreetNet(object):
 
         # generate a new object from this multigraph
         return self.__class__.from_multigraph(g_new)
-
-    def save(self, filename):
-        '''
-        Just saves the network for convenience.
-        '''
-        with open(filename, 'wb') as f:
-            cPickle.dump(self, f)
-
 
     def build_grid_edge_index(self, gridsize, extent=None):
         '''
