@@ -118,13 +118,22 @@ class NetPoint(object):
         self.node_dist = node_dist
 
     @classmethod
-    def from_cartesian(cls, street_net, x, y, grid_edge_index=None):
+    def from_cartesian(cls, street_net, x, y, grid_edge_index=None, radius=None):
+        """
+        Convert from Cartesian coordinates to a NetPoint
+        :param street_net: The governing network
+        :param x:
+        :param y:
+        :param grid_edge_index: Optionally supply a pre-defined grid index, which allows for fast searching
+        :param radius: Optional maximum search radius. If no edges are found within this radius, the point is not snapped.
+        :return: NetPoint or None (if snapping fails)
+        """
         if grid_edge_index is not None:
-            obj = street_net.closest_edges_euclidean(x, y, grid_edge_index=grid_edge_index)[0]
-            if obj is not None:  # if the index is poorly constructed, this method can fail
-                return obj
-        # revert to slow method if that happens
-        return street_net.closest_segments_euclidean_brute_force(x, y)[0]
+            return street_net.closest_edges_euclidean(x, y,
+                                                      grid_edge_index=grid_edge_index,
+                                                      radius=radius)[0]
+        else:
+            return street_net.closest_segments_euclidean_brute_force(x, y, radius=radius)[0]
 
     @property
     def distance_positive(self):
