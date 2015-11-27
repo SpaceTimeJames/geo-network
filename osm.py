@@ -122,7 +122,7 @@ class OSMStreetNet(StreetNet):
                       blacklist=('service',)):
         
         self.input_proj = pyproj.Proj(init='epsg:4326')
-        self.output_proj = pyproj.Proj(init='epsg:%d' % self.srid)
+        self.output_proj = pyproj.Proj(init='epsg:%d' % self.srid) if self.srid else None
         
         g_raw = nx.MultiGraph()
         
