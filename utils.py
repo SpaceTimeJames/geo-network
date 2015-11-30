@@ -496,13 +496,12 @@ def network_paths_source_targets(net_obj,
                                       logger=logger)
 
     # Cartesian filtering by nodes
-    ## FIXME: this seems to be missing out the case where both nodes are more distant than the cutoff...
-    # in this case, no source <-> target links are returned, even though there may be many on the same edge.
     target_nodes_pos = CartesianData([t.edge.node_pos_coords for t in target_points.toarray(0)])
     target_nodes_neg = CartesianData([t.edge.node_neg_coords for t in target_points.toarray(0)])
     # Find the targets on the source edge and include these explicitly.
     # This is required for longer edges, where neither of the edge nodes are within max_search distance
     on_this_edge = np.array([t.edge == source.edge for t in target_points.toarray(0)])
+    logger.info("Found %d points on the starting edge" % on_this_edge.sum())
     source_xy_tiled = CartesianData([source.cartesian_coords] * target_points.ndata)
 
     target_distance_pos = target_nodes_pos.distance(source_xy_tiled)
@@ -514,6 +513,9 @@ def network_paths_source_targets(net_obj,
         on_this_edge
     )[0]
     reduced_targets = target_points.getrows(reduced_target_idx)
+    logger.info("Initial filtering reduces number of targets from {0} to {1}".format(
+        target_points.ndata,
+        reduced_targets.ndata))
 
 
     # cartesian filtering by NetPoint
@@ -538,9 +540,9 @@ def network_paths_source_targets(net_obj,
                     # all other situations
                     dist_along = t.node_dist[path[-1]]
                     dist_between = dist + dist_along
-                # print "Target %d is on this edge at a distance of %.2f" % (reduced_target_idx[i], dist_between)
+                logger.info("Target %d is on this edge at a distance of %.2f" % (reduced_target_idx[i], dist_between))
                 if dist_between <= max_search_distance:
-                    # print "Adding target %d to paths" % reduced_target_idx[i]
+                    logger.info("Adding target %d to paths" % reduced_target_idx[i])
                     paths[reduced_target_idx[i]].append((list(path), dist_between, splits))
 
     return paths

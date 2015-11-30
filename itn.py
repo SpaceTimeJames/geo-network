@@ -492,7 +492,7 @@ if __name__ == '__main__':
 
     xs = np.random.rand(100)*(xmax - xmin) + xmin
     ys = np.random.rand(100)*(ymax - ymin) + ymin
-    net_pts = [g.closest_segments_euclidean_brute_force(x, y)[1] for (x, y) in zip(xs, ys)]
+    net_pts = [g.closest_edges_euclidean_brute_force(x, y)[1] for (x, y) in zip(xs, ys)]
 
     #Four test points - 1 and 3 on same segment, 2 on neighbouring segment, 4 long way away.
     test_points = [

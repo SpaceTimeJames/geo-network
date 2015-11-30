@@ -10,7 +10,7 @@ import unittest
 import settings
 import numpy as np
 from matplotlib import pyplot as plt
-from utils import network_linkages, network_walker
+from network import utils
 from validation import hotspot, roc
 
 
@@ -78,12 +78,13 @@ class TestNetworkData(unittest.TestCase):
 
         self.assertFalse(np.any(net_point_array.distance(net_point_array).data.sum()))
 
-    def test_snapping(self):
+    def test_snapping_brute_force(self):
         # lay down some known points
         coords = [
             (531022.868, 175118.877),
             (531108.054, 175341.141),
-            (531600.117, 175243.572)
+            (531600.117, 175243.572),
+            (531550, 174740),
         ]
         # the edges they should correspond to
         edge_params = [
@@ -96,13 +97,61 @@ class TestNetworkData(unittest.TestCase):
             {'orientation_neg': 'osgb4000000030778079_0',
              'orientation_pos': 'osgb4000000030684375_0',
              'fid': 'osgb4000000030235965'},
+            None,  # no edge within radius
         ]
         for c, e in zip(coords, edge_params):
             # snap point
-            this_netpoint = NetPoint.from_cartesian(self.itn_net, *c)
+            this_netpoint = NetPoint.from_cartesian(self.itn_net, *c, radius=50)
             # check edge equality
-            this_edge = Edge(self.itn_net, **e)
-            self.assertEqual(this_netpoint.edge, this_edge)
+            if e:
+                this_edge = Edge(self.itn_net, **e)
+                self.assertEqual(this_netpoint.edge, this_edge)
+            else:
+                self.assertTrue(this_netpoint is None)
+
+    def test_snapping_indexed(self):
+        # lay down some known points
+        coords = [
+            (531022.868, 175118.877),
+            (531108.054, 175341.141),
+            (531600.117, 175243.572),
+            (531550, 174740),
+        ]
+        # the edges they should correspond to
+        edge_params = [
+            {'orientation_neg': 'osgb4000000029961720_0',
+             'orientation_pos': 'osgb4000000029961721_0',
+             'fid': 'osgb4000000030340202'},
+            {'orientation_neg': 'osgb4000000029962839_0',
+             'orientation_pos': 'osgb4000000029962853_0',
+             'fid': 'osgb4000000030235941'},
+            {'orientation_neg': 'osgb4000000030778079_0',
+             'orientation_pos': 'osgb4000000030684375_0',
+             'fid': 'osgb4000000030235965'},
+            None,  # no edge within radius
+        ]
+        gei = self.itn_net.build_grid_edge_index(50)
+        # supply incompatible radius
+        with self.assertRaises(AssertionError):
+            this_netpoint = NetPoint.from_cartesian(self.itn_net, *coords[0], grid_edge_index=gei, radius=51)
+        for c, e in zip(coords, edge_params):
+            # snap point
+            this_netpoint = NetPoint.from_cartesian(self.itn_net, *c, grid_edge_index=gei, radius=50)
+            # check edge equality
+            if e:
+                this_edge = Edge(self.itn_net, **e)
+                self.assertEqual(this_netpoint.edge, this_edge)
+            else:
+                self.assertTrue(this_netpoint is None)
+
+        # retest last point without a radius
+        e = {'orientation_neg': 'osgb4000000029961762_0',
+             'orientation_pos': 'osgb4000000029961741_0',
+             'fid': 'osgb4000000030145824'}
+        c = coords[-1]
+        this_netpoint = NetPoint.from_cartesian(self.itn_net, *c, grid_edge_index=gei)
+        this_edge = Edge(self.itn_net, **e)
+        self.assertEqual(this_netpoint.edge, this_edge)
 
 
 class TestUtils(unittest.TestCase):
@@ -110,12 +159,43 @@ class TestUtils(unittest.TestCase):
         self.test_data = read_gml(TEST_DATA_FILE)
         self.itn_net = ITNStreetNet.from_data_structure(self.test_data)
 
-    def test_network_walker(self):
-        g = network_walker(self.itn_net, repeat_edges=False, verbose=False)
+    def test_network_edge_walker(self):
+        g = utils.network_walker(self.itn_net, repeat_edges=False, verbose=False)
         res = list(g)
         # if repeat_edges == False. every edge should be covered exactly once
         self.assertEqual(len(res), len(self.itn_net.edges()))
-        ## TODO: finish me
+        # since no start node was supplied, walker should have started at node 0
+        self.assertEqual(res[0][0], [self.itn_net.nodes()[0]])
+        # restart walk at a different node
+        g = utils.network_walker(self.itn_net, repeat_edges=False, verbose=False, source_node=self.itn_net.nodes()[-1])
+        res2 = list(g)
+        self.assertEqual(len(res2), len(self.itn_net.edges()))
+
+        # now run it again using the class
+        obj = utils.NetworkWalker(self.itn_net,
+                                  [],
+                                  repeat_edges=False)
+        g = obj.walker()
+        res3 = list(g)
+        self.assertListEqual(res, res3)
+
+        # test caching
+        start = self.itn_net.nodes()[0]
+        self.assertTrue(start in obj.cached_walks)
+        self.assertListEqual(res, obj.cached_walks[start])
+
+        start = self.itn_net.nodes()[-1]
+        g = obj.walker(start)
+        res4 = list(g)
+        self.assertListEqual(res2, res4)
+        self.assertTrue(start in obj.cached_walks)
+        self.assertListEqual(res2, obj.cached_walks[start])
+
+
+    def test_network_walker(self):
+        pass
+
+
 
 
 if __name__ == "__main__":
@@ -173,7 +253,7 @@ if __name__ == "__main__":
             # the fall back should probably be a method that does not depend on the grid, which is what
             # closest_segments_euclidean_brute_force is designed to do
             # this method is MUCH slower but always finds an edge
-            tmp = itn_net.closest_segments_euclidean_brute_force(x, y)
+            tmp = itn_net.closest_edges_euclidean_brute_force(x, y)
             fail_idx.append(i)
         net_points.append(tmp[0])
         snap_dists.append(tmp[1])

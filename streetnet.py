@@ -133,7 +133,11 @@ class NetPoint(object):
                                                       grid_edge_index=grid_edge_index,
                                                       radius=radius)[0]
         else:
-            return street_net.closest_segments_euclidean_brute_force(x, y, radius=radius)[0]
+            res = street_net.closest_edges_euclidean_brute_force(x, y, radius=radius)
+            if res is not None:
+                return res[0]
+            else:
+                return
 
     @property
     def distance_positive(self):
@@ -259,8 +263,9 @@ class NetPath(object):
 
 class GridEdgeIndex(object):
 
-    def __init__(self, x_grid, y_grid, edge_index):
+    def __init__(self, grid_length, x_grid, y_grid, edge_index):
 
+        self.grid_length = grid_length
         self.x_grid = x_grid
         self.y_grid = y_grid
         self.edge_index = edge_index
@@ -677,9 +682,7 @@ class StreetNet(object):
                 for j in range(bbox_min_y_loc,bbox_max_y_loc+1):
                     edge_index[(i,j)].append((n1,n2,fid))
 
-        grid_edge_index=GridEdgeIndex(x_grid,y_grid,edge_index)
-
-        return grid_edge_index
+        return GridEdgeIndex(gridsize, x_grid, y_grid, edge_index)
 
     def closest_edges_euclidean(self, x, y, grid_edge_index=None, radius=50, max_edges=1):
         '''
@@ -694,21 +697,23 @@ class StreetNet(object):
         :return: If max_edges=1, return (NetPoint, snap_distance) tuple, otherwise return length max_edges list of
         tuples.
         '''
-        #TODO: Raise warning if grid size smaller than radius
 
         # if there is no index, use the brute force method
         if grid_edge_index is None:
-            return self.closest_segments_euclidean_brute_force(x, y, radius=radius)
+            return self.closest_edges_euclidean_brute_force(x, y, radius=radius)
+        elif radius is not None:
+            # check that radius and grid edge index are compatible
+            assert grid_edge_index.grid_length >= radius, "Grid edge index has length less than radius"
 
         #Produce a shapely point and find which cell it lies in.
-        point = Point(x,y)
+        point = Point(x, y)
 
         x_loc = bs.bisect_left(grid_edge_index.x_grid, x)
         y_loc = bs.bisect_left(grid_edge_index.y_grid, y)
 
         #Go round this cell and all neighbours (9 in total) collecting all edges
         #which could intersect with any of these.
-        candidate_edges=[]
+        candidate_edges = []
 
         for i in [-1,0,1]:
             for j in [-1,0,1]:
@@ -720,10 +725,15 @@ class StreetNet(object):
         #Calculate the distances to each
         candidate_edge_distances=[point.distance(self.g[n1][n2][fid]['linestring']) for (n1, n2, fid) in candidate_edges]
 
-        #Order the edges according to proximity, omitting those which are further than radius away
-        valid_edges_distances=[w for w in sorted(zip(candidate_edges,candidate_edge_distances),key=lambda w: w[1]) if w[1]<radius]
+        valid_edges_distances = sorted(
+            zip(candidate_edges, candidate_edge_distances),
+            key=lambda w: w[1]
+        )
+        if radius:
+            #Order the edges according to proximity, omitting those which are further than radius away
+            valid_edges_distances = [w for w in valid_edges_distances if w[1] < radius]
 
-        closest_edges=[]
+        closest_edges = []
 
         for (n1,n2,fid),snap_distance in valid_edges_distances[:max_edges]:
 
@@ -1109,7 +1119,7 @@ class StreetNet(object):
             yield e[2]['linestring']
 
     ### ADDED BY GABS
-    def closest_segments_euclidean_brute_force(self, x, y, radius=None):
+    def closest_edges_euclidean_brute_force(self, x, y, radius=None):
         pt = Point(x, y)
         if radius:
             bpoly = pt.buffer(radius)
@@ -1121,15 +1131,15 @@ class StreetNet(object):
             # no valid edges found, bail.
             return None
 
-        snap_distances = [x.distance(pt) for x in self.lines_iter()]
+        snap_distances = [x.linestring.distance(pt) for x in edges]
         idx = np.argmin(snap_distances)
         snap_distance = snap_distances[idx]
         closest_edge = edges[idx]
 
-        da = closest_edge['linestring'].project(pt)
+        da = closest_edge.linestring.project(pt)
         dist_along = {
             closest_edge.orientation_neg: da,
-            closest_edge.orientation_pos: closest_edge['linestring'].length - da,
+            closest_edge.orientation_pos: closest_edge.linestring.length - da,
         }
 
         return NetPoint(self, closest_edge, dist_along), snap_distance
