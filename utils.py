@@ -3,7 +3,7 @@ import numpy as np
 from point_process.utils import linkages, linkage_func_separable
 from data.models import CartesianSpaceTimeData, NetworkData, CartesianData
 import logging
-from streetnet import NetPoint, Edge
+from streetnet import NetPoint, Edge, NetPath, Node
 from collections import OrderedDict, defaultdict
 import operator
 
@@ -187,7 +187,13 @@ class NetworkWalker(object):
             else:
                 return self.walk_from_node(start)
 
-    def source_to_targets(self, start):
+    def source_to_targets(self, start, max_distance=None):
+        """
+        Starting at the (node|NetPoint) start, find all paths to the targets, subject to the usual constraints
+        :param start:
+        :param max_distance: Optionally provide a new max_distance.
+        :return:
+        """
         try:
             # look for cached result
             return self.cached_source_target_paths[start]
@@ -201,6 +207,7 @@ class NetworkWalker(object):
                                              logger=self.logger)
             self.cached_source_target_paths[start] = paths
             return paths
+
 
 
 def network_walker(net_obj,
@@ -243,6 +250,8 @@ def network_walker(net_obj,
 
     if source_node is None:
         source_node = net_obj.nodes()[0]
+    else:
+        source_node = Node(source_node)
 
     edges_seen = {}  # only used if repeat_edges = False
 
@@ -295,6 +304,11 @@ def network_walker(net_obj,
 
         logger.info("*** Generation %d ***", count)
         count += 1
+        NetPath(start=source_node,
+                end=current_path[-1],
+                nodes=list(current_path),
+                distance=dist[-1],
+                split=current_splits[-1])  ## TODO: we require the CURRENT edge too. How best to return that??
         yield (list(current_path), dist[-1], this_edge, current_splits[-1])
 
         logger.info("Walking edge %s", this_edge)
