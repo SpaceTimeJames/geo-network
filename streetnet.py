@@ -35,8 +35,8 @@ class Edge(object):
 
     def __init__(self, street_net, orientation_pos=None, orientation_neg=None, fid=None, **kwargs):
         self.graph = street_net
-        self.orientation_neg = orientation_neg
-        self.orientation_pos = orientation_pos
+        self.orientation_neg = Node(street_net, orientation_neg)
+        self.orientation_pos = Node(street_net, orientation_pos)
         self.fid = fid
 
     # redefine __getattr__ so that any dict-style lookups on this object are redirected to look in the attributes
@@ -284,6 +284,9 @@ class NetPath(object):
             raise AttributeError('Path mismatch: nodes are defined on different graphs')
 
         self.graph = self.start.graph
+
+    def __eq__(self, other):
+        return self.__dict__ == other.__dict__
 
     @property
     def splits(self):

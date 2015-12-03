@@ -165,7 +165,7 @@ class TestUtils(unittest.TestCase):
         # if repeat_edges == False. every edge should be covered exactly once
         self.assertEqual(len(res), len(self.itn_net.edges()))
         # since no start node was supplied, walker should have started at node 0
-        self.assertEqual(res[0][0], [self.itn_net.nodes()[0]])
+        self.assertEqual(res[0][0].nodes, [self.itn_net.nodes()[0]])
         # restart walk at a different node
         g = utils.network_walker(self.itn_net, repeat_edges=False, verbose=False, source_node=self.itn_net.nodes()[-1])
         res2 = list(g)
@@ -194,8 +194,6 @@ class TestUtils(unittest.TestCase):
 
     def test_network_walker(self):
         pass
-
-
 
 
 if __name__ == "__main__":

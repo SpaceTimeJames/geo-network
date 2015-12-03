@@ -194,20 +194,39 @@ class NetworkWalker(object):
         :param max_distance: Optionally provide a new max_distance.
         :return:
         """
+        max_distance = max_distance or self.max_distance
         try:
             # look for cached result
-            return self.cached_source_target_paths[start]
+            md, cached = self.cached_source_target_paths[start]
+            # check the max_distance associated with the cached value
+            # equal: simply return the cache
+            # greater: filter the cache for results that meet the current max_distance
+            # less: recompute the result and cache
+            if md == max_distance:
+                return cached
+            elif md > max_distance:
+                self.logger.info("source_to_targets called with a LOWER max_distance; filtering cached result.")
+                new_paths = {}
+                for k, x in cached.iteritems():
+                    filtered = [t for t in x if t.distance_total <= max_distance]
+                    if len(filtered):
+                        new_paths[k] = filtered
+                return new_paths
+            else:
+                self.logger.info("source_to_targets called with a HIGHER max_distance; dropping cached result and recomputing.")
+                self.cached_source_target_paths.pop(start)
         except KeyError:
             # compute it from scratch
-            paths = network_paths_source_targets(self.net_obj,
+            self.logger.info("No cached result retrieved; computing result from scratch.")
+
+        paths = network_paths_source_targets(self.net_obj,
                                              start,
                                              self.targets,
-                                             self.max_distance,
+                                             max_distance,
                                              max_split=self.max_split,
                                              logger=self.logger)
-            self.cached_source_target_paths[start] = paths
-            return paths
-
+        self.cached_source_target_paths[start] = (max_distance, paths)
+        return paths
 
 
 def network_walker(net_obj,
@@ -251,7 +270,7 @@ def network_walker(net_obj,
     if source_node is None:
         source_node = net_obj.nodes()[0]
     else:
-        source_node = Node(source_node)
+        source_node = Node(net_obj, source_node)
 
     edges_seen = {}  # only used if repeat_edges = False
 
@@ -304,12 +323,12 @@ def network_walker(net_obj,
 
         logger.info("*** Generation %d ***", count)
         count += 1
-        NetPath(start=source_node,
-                end=current_path[-1],
-                nodes=list(current_path),
-                distance=dist[-1],
-                split=current_splits[-1])  ## TODO: we require the CURRENT edge too. How best to return that??
-        yield (list(current_path), dist[-1], this_edge, current_splits[-1])
+        this_path = NetPath(start=source_node,
+                            end=current_path[-1],
+                            nodes=list(current_path),
+                            distance=dist[-1],
+                            split=current_splits[-1])
+        yield this_path, this_edge
 
         logger.info("Walking edge %s", this_edge)
 
@@ -381,13 +400,21 @@ def network_walker_from_net_point(net_obj,
                            logger=logger)
 
     # first edge to generate is always the edge on which net_point is located
-    yield ([], 0., net_point.edge, 1.)
+    # the path in this case is null, and shouldn't be used.
+    this_path = NetPath(start=net_point,
+                        end=net_point,
+                        nodes=[],
+                        distance=0.,
+                        split=1.)
+    yield this_path, net_point.edge
 
     for g, d in zip([g_pos, g_neg], [net_point.distance_positive, net_point.distance_negative]):
-        for t in g:
+        for (path, edge) in g:
+            # replace start node with true start
+            path.start = net_point
             # add distance already walked
-            yield (t[0], t[1] + d, t[2], t[3])
-
+            path.distance_total += d
+            yield path, edge
 
 def network_walker_uniform_sample_points(net_obj, interval, source_node=None):
     """
@@ -404,31 +431,27 @@ def network_walker_uniform_sample_points(net_obj, interval, source_node=None):
         points[e] = None
         n_per_edge[e] = None
 
-    # points = []
-    # n_per_edge = []
-    for path, dist, edge, _ in g:
+    for path, edge in g:
         el = edge.length
 
         # next point location
-        npl = interval - dist % interval
+        # npl = interval - dist % interval
+        npl = interval - path.distance_total % interval
 
         # distances along to deposit points
         point_dists = np.arange(npl, el, interval)
 
         if not point_dists.size:
             # this edge is too short - just place one point at the centroid
-            # points.append(edge.centroid)
-            # n_per_edge.append(1)
             points[edge] = [edge.centroid]
             n_per_edge[edge] = 1
             continue
         else:
             n_per_edge[edge] = point_dists.size
-            # n_per_edge.append(point_dists.size)
 
         # create the points
-        on = path[-1]
-        op = get_next_node(edge, path[-1])
+        on = path.nodes[-1]
+        op = get_next_node(edge, path.nodes[-1])
 
         points[edge] = []
         for pd in point_dists:
@@ -436,12 +459,9 @@ def network_walker_uniform_sample_points(net_obj, interval, source_node=None):
                 on: pd,
                 op: el - pd,
             }
-            # points.append(NetPoint(net_obj, edge, node_dist))
             points[edge].append(NetPoint(net_obj, edge, node_dist))
 
     points = NetworkData(reduce(operator.add, points.values()))
-    # res = NetworkData(points)
-    # n_per_edge = np.array(n_per_edge)
     n_per_edge = np.array(n_per_edge.values())
 
     return points, n_per_edge
@@ -459,29 +479,29 @@ def network_walker_fixed_distance(net_obj, starting_net_point, distance):
     end_points = []
     paths = []
 
-    for path, dist, edge, _ in g:
-        if not len(path):
+    for path, edge in g:
+        if not len(path.nodes):
             # starting edge
             # TODO: this will break if the starting edge is longer than distance
             continue
         el = edge.length
-        next_node = get_next_node(edge, path[-1])
+        next_node = get_next_node(edge, path.nodes[-1])
 
-        if dist + el <= distance:
+        if path.distance_total + el <= distance:
             if net_obj.g.degree(next_node) == 1:
                 # terminal node
                 node_dist = {
-                    path[-1]: el,
+                    path.nodes[-1]: el,
                     next_node: 0.,
                 }
             else:
                 continue
         else:
             # how far along this edge can we walk?
-            da = distance - dist
+            da = distance - path.distance_total
             # construct point
             node_dist = {
-                path[-1]: da,
+                path.nodes[-1]: da,
                 next_node: el - da
             }
         netp = NetPoint(net_obj, edge, node_dist)
@@ -542,24 +562,29 @@ def network_paths_source_targets(net_obj,
     # reduced_targets = target_points
     # reduced_target_idx = range(target_points.ndata)
 
-    for path, dist, edge, splits in g:
+    for path, edge in g:
         # test whether any targets lie on the new edge
         for i, t in enumerate(reduced_targets.toarray(0)):
             if t.edge == edge:
                 # get distance from current node to this point
-                if not len(path):
+                if not len(path.nodes):
                     # this only happens at the starting edge
                     dist_between = (t - source).length
                 else:
                     # all other situations
-                    dist_along = t.node_dist[path[-1]]
-                    dist_between = dist + dist_along
+                    dist_along = t.node_dist[path.nodes[-1]]
+                    dist_between = path.distance_total + dist_along
                 logger.info("Target %d is on this edge at a distance of %.2f" % (reduced_target_idx[i], dist_between))
                 if dist_between <= max_search_distance:
                     logger.info("Adding target %d to paths" % reduced_target_idx[i])
-                    paths[reduced_target_idx[i]].append((list(path), dist_between, splits))
+                    this_path = NetPath(start=path.start,
+                                        end=t,
+                                        nodes=list(path.nodes),
+                                        distance=dist_between,
+                                        split=path.splits_total)
+                    paths[reduced_target_idx[i]].append(this_path)
 
-    return paths
+    return dict(paths)
 
 
 def network_point_coverage(net, dx=None, include_nodes=True):
