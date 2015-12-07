@@ -1230,3 +1230,12 @@ class StreetNet(object):
             ymax = max(ymax, d)
 
         return xmin, ymin, xmax, ymax
+
+    ## TODO
+    def adjancency_matrix(self):
+        """
+        Create an adjacency matrix. Maybe optionally in R format too, otherwise pandas?
+        Index each edge by ID?
+        I think each unit should be an EDGE?
+        :return:
+        """
