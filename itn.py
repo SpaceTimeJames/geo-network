@@ -386,16 +386,16 @@ class ITNStreetNet(StreetNet):
                     #The orientation is either positive of negative, and in either
                     #case the roadLink_fid to which it refers is specified
                     if '+' in data.roadRouteInformations[roadRouteInformation_fid].route_members:
-
                         roadLink_fid = data.roadRouteInformations[roadRouteInformation_fid].route_members['+']
-
                         orientation='pos'
-
                     else:
-
                         roadLink_fid = data.roadRouteInformations[roadRouteInformation_fid].route_members['-']
-
                         orientation='neg'
+
+                    if roadLink_fid not in data.roadLinks:
+                        # this instruction refers to a link not included in our network (why??)
+                        # skip to avoid errors
+                        continue
 
                     #Get the relevant terminal nodes so that we can look up the edge
                     v0 = data.roadLinks[roadLink_fid].tags['orientation_pos']
