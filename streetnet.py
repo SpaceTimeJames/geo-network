@@ -359,6 +359,7 @@ class StreetNet(object):
         w = shapefile.Writer(shapefile.POLYLINE)
         # get edge fields and types
         fields = {}
+        bool_fields = set()
         lens = {}
         short_names = {}
         for e in self.edges():
@@ -370,10 +371,14 @@ class StreetNet(object):
                     if isinstance(e.attrs[f], str) or isinstance(e.attrs[f], unicode):
                         fields[f] = 'C'
                         lens[f] = len(e.attrs[f])
+                    elif isinstance(e.attrs[f], bool):
+                        fields[f] = 'N'  # 0: False, 1: True
+                        bool_fields.add(f)
                     elif isinstance(e.attrs[f], float):
                         fields[f] = 'F'
                     elif isinstance(e.attrs[f], int):
                         fields[f] = 'N'
+
                 elif fields[f] == 'C':
                     # keep track of max length
                     lens[f] = max(len(e.attrs[f]), lens[f])
@@ -390,7 +395,15 @@ class StreetNet(object):
                 w.field(field_name, 'N', 12)
         for e in self.edges():
             w.line(parts=[e.linestring.coords[:]])
-            rec = dict([(short_names.get(f, f), e.attrs.get(f, None)) for f in fields])
+            rec = {}
+            for f in fields:
+                key = short_names.get(f, f)
+                val = e.attrs.get(f, None)
+                # custom retrieval operation depending on type
+                if f in bool_fields:
+                    rec[key] = int(val)
+                else:
+                    rec[key] = val
             w.record(**rec)
         w.save(filename)
 
@@ -542,6 +555,27 @@ class StreetNet(object):
         ax.set_xticks([])
         ax.set_yticks([])
 
+    def label_edges_within_boundary(self, poly, attr_key='within', method='within'):
+        """
+        Add an attribute to edges based on whether they are inside the supplied polygon
+        :param poly: Shapely polygon
+        :param attr_key: The name of the attribute to add
+        :param method: String indicating the method used to find matches. Allowed values:
+            within: Edge must be entirely within the polygon
+            intersects: Edge must intersect the polygon
+        This routine will OVERWRITE any attribute with the same name
+        """
+        if method == 'within':
+            def filter_func(line, poly):
+                return line.within(poly)
+        elif method == 'intersects':
+            def filter_func(line, poly):
+                return line.intersects(poly)
+        else:
+            raise ValueError("Unsupported method")
+        for n1, n2, fid, attr in self.g.edges(data=True, keys=True):
+            line = attr['linestring']
+            attr[attr_key] = filter_func(line, poly)
 
     def within_boundary(self, poly, outer_buffer=0, clip_lines=True):
 
@@ -553,9 +587,7 @@ class StreetNet(object):
         A buffer can also be passed - this enlarges the boundary in the obvious way.
 
         If clip_lines=True, any lines partially intersecting the region are clipped to within it.
-
-        This is an example of the 'inheritance' method - a whole new network is
-        produced, and the output of the routine is a new instance of ITNStreetNet.
+        :return A new instance of StreetNet
         '''
 
         #Create new graph
