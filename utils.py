@@ -120,7 +120,8 @@ class NetworkWalker(object):
                  max_distance=None,
                  max_split=None,
                  repeat_edges=True,
-                 verbose=False):
+                 verbose=False,
+                 logger=None):
 
         self.net_obj = net_obj
         self.targets = NetworkData(targets)
@@ -129,13 +130,20 @@ class NetworkWalker(object):
         self.repeat_edges = repeat_edges
 
         # logging
-        self.logger = logging.getLogger("NetworkWalker")
-        self.logger.handlers = []  # make sure logger has no handlers to begin with
+        if logger:
+            self.logger = logger
+        else:
+            self.logger = logging.getLogger("NetworkWalker")
+            self.logger.handlers = []  # make sure logger has no handlers to begin with
+            if verbose:
+                self.logger.addHandler(logging.StreamHandler())
+            else:
+                self.logger.addHandler(logging.NullHandler())
+
         if verbose:
             self.logger.setLevel(logging.DEBUG)
-            self.logger.addHandler(logging.StreamHandler())
         else:
-            self.logger.addHandler(logging.NullHandler())
+            self.logger.setLevel(logging.INFO)
 
         # this dictionary keeps track of the walks already carried out
         self.cached_walks = {}
@@ -203,6 +211,7 @@ class NetworkWalker(object):
             # greater: filter the cache for results that meet the current max_distance
             # less: recompute the result and cache
             if md == max_distance:
+                self.logger.info("source_to_targets called with the SAME max_distance; returning cached result.")
                 return cached
             elif md > max_distance:
                 self.logger.info("source_to_targets called with a LOWER max_distance; filtering cached result.")
@@ -262,6 +271,11 @@ def network_walker(net_obj,
             logger.addHandler(logging.StreamHandler())
         else:
             logger.addHandler(logging.NullHandler())
+    else:
+        if verbose:
+            logger.setLevel(logging.DEBUG)
+        else:
+            logger.setLevel(logging.INFO)
 
     if initial_exclusion is not None and source_node is None:
         # this doesn't make any sense
@@ -292,7 +306,7 @@ def network_walker(net_obj,
     #The stack will empty when the source has been exhausted
     while stack:
 
-        logger.info("Stack has length %d. Picking from top of the stack.", len(stack))
+        logger.debug("Stack has length %d. Picking from top of the stack.", len(stack))
 
         if not len(stack[-1]):
             # no more nodes to search from previous edge
@@ -304,7 +318,7 @@ def network_walker(net_obj,
             #Adjust the distance list to represent the new state of current_path too
             dist.pop()
 
-            logger.info("Options exhausted. Backtracking...")
+            logger.debug("Options exhausted. Backtracking...")
 
             # skip to next iteration
             continue
@@ -314,14 +328,14 @@ def network_walker(net_obj,
 
         if not repeat_edges:
             if this_edge in edges_seen:
-                logger.info("Have already seen this edge on iteration %d, so won't repeat it.", edges_seen[this_edge])
+                logger.debug("Have already seen this edge on iteration %d, so won't repeat it.", edges_seen[this_edge])
                 # skip to next iteration
                 continue
             else:
-                logger.info("This is the first time we've walked this edge")
+                logger.debug("This is the first time we've walked this edge")
                 edges_seen[this_edge] = count
 
-        logger.info("*** Generation %d ***", count)
+        logger.debug("*** Generation %d ***", count)
         count += 1
         this_path = NetPath(start=source_node,
                             end=current_path[-1],
@@ -330,13 +344,13 @@ def network_walker(net_obj,
                             split=current_splits[-1])
         yield this_path, this_edge
 
-        logger.info("Walking edge %s", this_edge)
+        logger.debug("Walking edge %s", this_edge)
 
         # check whether next node is within reach (if max_distance has been supplied)
         if max_distance is not None:
             dist_to_next_node = dist[-1] + this_edge.length
             if dist_to_next_node > max_distance:
-                logger.info("Walking to the end of this edge is too far (%.2f), so won't explore further.",
+                logger.debug("Walking to the end of this edge is too far (%.2f), so won't explore further.",
                             dist_to_next_node)
                 continue
 
@@ -348,19 +362,19 @@ def network_walker(net_obj,
         # check whether the number of branches is below tolerance (if max_splits has been supplied)
         next_splits = current_splits[-1] * max(net_obj.degree(node) - 1., 1.)
         if max_split is not None and next_splits > max_split:
-            logger.info("The next node has too many branches, so won't explore further.")
+            logger.debug("The next node has too many branches, so won't explore further.")
             continue
 
         # has this node been visited already?
         if node not in current_path:
-            logger.info("Haven't visited this before, so adding to the stack.")
+            logger.debug("Haven't visited this before, so adding to the stack.")
             stack.append(net_obj.next_turn(node, exclude_nodes=[previous_node]))
             current_path.append(node)
             current_splits.append(next_splits)
             dist.append(dist[-1] + this_edge.length)
-            logger.info("We are now distance %.2f away from the source point", dist[-1])
+            logger.debug("We are now distance %.2f away from the source point", dist[-1])
         else:
-            logger.info("We were already here on iteration %d so ignoring it", (current_path.index(node) + 1))
+            logger.debug("We were already here on iteration %d so ignoring it", (current_path.index(node) + 1))
 
 
 def network_walker_from_net_point(net_obj,
@@ -518,6 +532,10 @@ def network_paths_source_targets(net_obj,
                                  max_split=None,
                                  verbose=False,
                                  logger=None):
+    if logger is None:
+        logger = logging.getLogger('null')
+        logger.handlers = []
+        logger.addHandler(logging.NullHandler())
     target_points = NetworkData(targets)
     paths = defaultdict(list)
 
@@ -535,7 +553,7 @@ def network_paths_source_targets(net_obj,
     # Find the targets on the source edge and include these explicitly.
     # This is required for longer edges, where neither of the edge nodes are within max_search distance
     on_this_edge = np.array([t.edge == source.edge for t in target_points.toarray(0)])
-    logger.info("Found %d points on the starting edge" % on_this_edge.sum())
+    logger.debug("Found %d points on the starting edge" % on_this_edge.sum())
     source_xy_tiled = CartesianData([source.cartesian_coords] * target_points.ndata)
 
     target_distance_pos = target_nodes_pos.distance(source_xy_tiled)
@@ -547,7 +565,7 @@ def network_paths_source_targets(net_obj,
         on_this_edge
     )[0]
     reduced_targets = target_points.getrows(reduced_target_idx)
-    logger.info("Initial filtering reduces number of targets from {0} to {1}".format(
+    logger.debug("Initial filtering reduces number of targets from {0} to {1}".format(
         target_points.ndata,
         reduced_targets.ndata))
 
@@ -574,9 +592,9 @@ def network_paths_source_targets(net_obj,
                     # all other situations
                     dist_along = t.node_dist[path.nodes[-1]]
                     dist_between = path.distance_total + dist_along
-                logger.info("Target %d is on this edge at a distance of %.2f" % (reduced_target_idx[i], dist_between))
+                logger.debug("Target %d is on this edge at a distance of %.2f" % (reduced_target_idx[i], dist_between))
                 if dist_between <= max_search_distance:
-                    logger.info("Adding target %d to paths" % reduced_target_idx[i])
+                    logger.debug("Adding target %d to paths" % reduced_target_idx[i])
                     this_path = NetPath(start=path.start,
                                         end=t,
                                         nodes=list(path.nodes),

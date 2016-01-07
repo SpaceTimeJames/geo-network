@@ -242,6 +242,8 @@ class NetPoint(object):
 
 class NetPath(object):
 
+    ## TODO: consider adding a linestring property - it would be a nice way to verify things
+
     def __init__(self, start, end, nodes, distance, edges=None, split=None):
         """
         Object encoding a route between two points on the network, either NetPoint or existing nodes
