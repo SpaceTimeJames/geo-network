@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.collections as mcoll
 import matplotlib.path as mpath
+from matplotlib import patches
 from matplotlib import cm
 import bisect
 from descartes import PolygonPatch
@@ -97,6 +98,8 @@ def plot_network_edge_lines(lines,
         ]
     else:
         combined = ops.cascaded_union(polys)
+        if not hasattr(combined, '__iter__'):
+            combined = [combined]
         patches = [PolygonPatch(t, facecolor='none', edgecolor='k', linewidth=1, alpha=alpha) for t in combined]
 
     coll = mcoll.PatchCollection(patches, match_original=True)
@@ -119,9 +122,10 @@ def plot_network_edge_lines(lines,
     return coll
 
 
-def plot_network_density(lines, edge_values, fmax=0.99, **kwargs):
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
+def plot_network_density(lines, edge_values, ax=None, fmax=0.99, **kwargs):
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
     plot_network_edge_lines(lines, c=edge_values, fmax=fmax, ax=ax, **kwargs)
     plot_network_edge_lines(lines, ax=ax, **kwargs)
     ax.set_xticks([])
@@ -225,6 +229,51 @@ def network_density_movie_slides2(vb,
         plt.axis('equal')
         plt.savefig(outfile, dpi=150)
         plt.close(fig)
+
+
+def network_lines_with_shaded_scatter_points(sample_points,
+                                             prediction_value_arr,
+                                             line_buffer=10,
+                                             ax=None,
+                                             fmin=None,
+                                             fmax=None,
+                                             vmin=None,
+                                             vmax=None,
+                                             boundary_poly=None,
+                                             colourbar=False,
+                                             cmap='Reds'):
+    if vmax and fmax:
+        raise AttributeError("Only supply one of vmax/fmax")
+    if vmin and fmin:
+        raise AttributeError("Only supply one of vmin/fmin")
+    if fmax or fmin:
+        ordered_vals = sorted(prediction_value_arr)
+        if fmax:
+            vmax = ordered_vals[int(fmax * len(ordered_vals))]
+        if fmin:
+            vmin = ordered_vals[int(fmin * len(ordered_vals))]
+    if vmax:
+        prediction_value_arr[prediction_value_arr > vmax] = vmax
+    if vmin:
+        prediction_value_arr[prediction_value_arr < vmin] = np.nan
+
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    xy = prediction_value_arr.to_cartesian()
+    # create circular patches
+    p = []
+    for i in range(xy.ndata):
+        p.append(patches.Circle(xy[i], radius=line_buffer, edgecolor=None))
+    coll = mcoll.PatchCollection(p)
+    coll.set_array(prediction_value_arr)
+    coll.set_cmap(cmap)
+    ax.add_collection(coll)
+
+    # TODO: finish
 
 
 if __name__ == "__main__":
