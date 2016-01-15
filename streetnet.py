@@ -22,13 +22,21 @@ except ImportError:
     MPL = False
 
 
+class Node(unicode):
+    def __new__(cls, net, node_id):
+        if node_id not in net.g.node:
+            raise ValueError("Node ID %s not found in the network" % node_id)
+        self = super(Node, cls).__new__(cls, node_id)
+        self.graph = net
+        return self
+
 
 class Edge(object):
 
     def __init__(self, street_net, orientation_pos=None, orientation_neg=None, fid=None, **kwargs):
         self.graph = street_net
-        self.orientation_neg = orientation_neg
-        self.orientation_pos = orientation_pos
+        self.orientation_neg = Node(street_net, orientation_neg)
+        self.orientation_pos = Node(street_net, orientation_pos)
         self.fid = fid
 
     # redefine __getattr__ so that any dict-style lookups on this object are redirected to look in the attributes
@@ -103,6 +111,7 @@ class Edge(object):
         Apparently, in the case of clashing hash keys, equality is checked anyway?
         """
         return hash((self.orientation_neg, self.orientation_pos, self.fid))
+
 
 class NetPoint(object):
 
@@ -233,18 +242,44 @@ class NetPoint(object):
 
 class NetPath(object):
 
-    def __init__(self, start, end, edges, distances, nodes):
+    ## TODO: consider adding a linestring property - it would be a nice way to verify things
 
+    def __init__(self, start, end, nodes, distance, edges=None, split=None):
+        """
+        Object encoding a route between two points on the network, either NetPoint or existing nodes
+        :param start: Start Node/NetPoint
+        :param end: Terminal Node/NetPoint
+        :param nodes: List of the nodes traversed
+        :param distance: Either an array of individual edge distances, or a float containing the total
+        :param edges: Optional array of Edge objects traversed
+        :param splits: Optional, either an array of node splits or a float containing the product
+        :return:
+        """
         self.start = start
         self.end = end
-        self.edges = edges
-        self.distances = distances
         self.nodes = nodes
 
-        if len(distances) != len(edges):
+        self._total_distance = None
+        self.distances = None
+        if hasattr(distance, '__iter__'):
+            self.distances = distance
+            self.distance_total = sum(distance)
+        else:
+            self.distance_total = distance
+        self.edges = edges
+        self._splits = None
+        self._split_total = None
+        if split is not None:
+            if hasattr(split, '__iter__'):
+                self._splits = split
+                self._split_total = np.prod(split)
+            else:
+                self._split_total = split
+
+        if self.edges is not None and self.distances is not None and (len(self.distances) != len(edges)):
             raise AttributeError('Path mismatch: distance list wrong length')
 
-        if len(nodes) != len(edges) - 1:
+        if self.edges is not None and len(nodes) != len(edges) - 1:
             raise AttributeError('Path mismatch: node list wrong length')
 
         if self.start.graph is not self.end.graph:
@@ -252,13 +287,24 @@ class NetPath(object):
 
         self.graph = self.start.graph
 
-    @property
-    def length(self):
-        return sum(self.distances)
+    def __eq__(self, other):
+        return self.__dict__ == other.__dict__
 
     @property
-    def node_degrees(self):
-        return [self.graph.g.degree(t) for t in self.nodes]
+    def splits(self):
+        if self._splits is None:
+            self._splits = [max(self.graph.g.degree(t) - 1, 1) for t in self.nodes]
+        return self._splits
+
+    @property
+    def splits_total(self):
+        if self._split_total is None:
+            self._split_total = np.prod(self.splits)
+        return self._split_total
+
+    @property
+    def length(self):
+        return self.distance_total
 
 
 class GridEdgeIndex(object):
@@ -795,7 +841,6 @@ class StreetNet(object):
         
         return closest_edges
 
-
     def path_undirected(self, net_point_from, net_point_to, length_only=False, method=None):
 
         known_methods = (
@@ -828,7 +873,11 @@ class StreetNet(object):
             path_edges=[fid_from]
             path_distances=[abs(dist_diff)]
             path_nodes=[]
-            path = NetPath(net_point_from, net_point_to, path_edges, path_distances, path_nodes)
+            path = NetPath(start=net_point_from,
+                           end=net_point_to,
+                           edges=path_edges,
+                           distance=path_distances,
+                           nodes=path_nodes)
 
         else:
             # Insert a new 'from' node
@@ -882,7 +931,11 @@ class StreetNet(object):
                     path_edges.append(fid_shortest)
                     path_distances.append(self.g[v][w][fid_shortest]['length'])
 
-                path = NetPath(net_point_from, net_point_to, path_edges, path_distances, path_nodes)
+                path = NetPath(start=net_point_from,
+                               end=net_point_to,
+                               edges=path_edges,
+                               distance=path_distances,
+                               nodes=path_nodes)
 
             except Exception:
 
@@ -926,7 +979,11 @@ class StreetNet(object):
                 path_distances=[dist_diff]
                 path_nodes=[]
 
-                path=NetPath(net_point_from,net_point_to,path_edges,path_distances,path_nodes)
+                path = NetPath(start=net_point_from,
+                               end=net_point_to,
+                               edges=path_edges,
+                               distance=path_distances,
+                               nodes=path_nodes)
 
             else:
 
@@ -948,7 +1005,11 @@ class StreetNet(object):
                     path_distances=[node_dist2[p1_node]-node_dist1[p1_node]]
                     path_nodes=[]
 
-                    path=NetPath(net_point_from,net_point_to,path_edges,path_distances,path_nodes)
+                    path = NetPath(start=net_point_from,
+                                   end=net_point_to,
+                                   edges=path_edges,
+                                   distance=path_distances,
+                                   nodes=path_nodes)
 
                 else:
 
@@ -976,7 +1037,11 @@ class StreetNet(object):
                         path_edges.append(fid_1)
                         path_distances.append(node_dist2[p2_node])
 
-                        path=NetPath(net_point_from,net_point_to,path_edges,path_distances,path_nodes)
+                        path = NetPath(start=net_point_from,
+                                       end=net_point_to,
+                                       edges=path_edges,
+                                       distance=path_distances,
+                                       nodes=path_nodes)
 
                     except:
 
@@ -1072,11 +1137,15 @@ class StreetNet(object):
                     path_edges.append(fid_shortest)
                     path_distances.append(self.g_routing[v][w][fid_shortest]['length'])
 
-                path=NetPath(net_point_from,net_point_to,path_edges,path_distances,path_nodes)
+                path = NetPath(start=net_point_from,
+                               end=net_point_to,
+                               edges=path_edges,
+                               distance=path_distances,
+                               nodes=path_nodes)
 
             except:
 
-                path=None
+                path = None
 
 
             #Restore the network to original state
@@ -1133,13 +1202,13 @@ class StreetNet(object):
         Get all nodes in the network. Optionally return only those that intersect the provided bounding polygon
         """
         if bounding_poly:
-            return [x[0] for x in self.g.nodes(data=True) if bounding_poly.intersects(Point(*x[1]['loc']))]
+            return [Node(self, x[0]) for x in self.g.nodes(data=True) if bounding_poly.intersects(Point(*x[1]['loc']))]
         else:
-            return self.g.nodes()
+            return [Node(self, x) for x in self.g.nodes()]
 
-    ### ADDED BY GABS
-    def edge(self, node1, node2, fid):
-        return self.g.edge[node1, node2, fid]
+    @property
+    def edge(self):
+        return self.g.edge
 
     ### ADDED BY GABS
     def lines_iter(self):
@@ -1195,3 +1264,12 @@ class StreetNet(object):
             ymax = max(ymax, d)
 
         return xmin, ymin, xmax, ymax
+
+    ## TODO
+    def adjancency_matrix(self):
+        """
+        Create an adjacency matrix. Maybe optionally in R format too, otherwise pandas?
+        Index each edge by ID?
+        I think each unit should be an EDGE?
+        :return:
+        """
