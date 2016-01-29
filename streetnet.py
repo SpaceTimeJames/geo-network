@@ -691,7 +691,7 @@ class StreetNet(object):
 
         #Add all nodes to the new posdict
         for v in g_new:
-            if '_clip' in v:
+            if '_clip' in v and clip_lines:
                 # find the new (clipped) location of this node
                 loc = node_shift[v]
             else:
@@ -1266,7 +1266,7 @@ class StreetNet(object):
         return xmin, ymin, xmax, ymax
 
     ## TODO
-    def adjancency_matrix(self):
+    def adjacency_matrix(self):
         """
         Create an adjacency matrix. Maybe optionally in R format too, otherwise pandas?
         Index each edge by ID?
