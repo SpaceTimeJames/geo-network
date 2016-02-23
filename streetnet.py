@@ -118,7 +118,7 @@ class NetPoint(object):
     def __init__(self, street_net, edge, node_dist):
         """
         :param street_net: A pointer to the network on which this point is defined
-        :param edge: An edge ID referring to an edge in street_net
+        :param edge: An Edge object
         :param node_dist: A dictionary containing the distance along this edge from both the positive and negative end
         The key gives the node ID, the value gives the distance from that end.
         """
