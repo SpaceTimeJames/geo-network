@@ -124,6 +124,19 @@ class NetPoint(object):
         """
         self.graph = street_net
         self.edge = edge
+        # check node_dist
+        assert len(node_dist) in (1, 2), "node_dist must have one or two entries"
+        if len(node_dist) == 2:
+            assert {edge.orientation_pos, edge.orientation_neg} == set(node_dist.keys()), \
+                "node_dist keys do not match the edge nodes"
+        else:
+            # fill in other node_dist
+            if node_dist.keys()[0] == edge.orientation_neg:
+                node_dist[edge.orientation_pos] = self.edge.length - node_dist.values()[0]
+            elif node_dist.keys()[0] == edge.orientation_pos:
+                node_dist[edge.orientation_neg] = self.edge.length - node_dist.values()[0]
+            else:
+                raise AssertionError("The entry in node_dist does not match either of the edge nodes")
         self.node_dist = node_dist
 
     @classmethod
@@ -1161,11 +1174,11 @@ class StreetNet(object):
         return path
 
     ### ADDED BY GABS
-    def next_turn(self, node, exclude_nodes=None):
+    def next_turn(self, node, exclude_edges=None):
         """
         Compute the options for routes at from the given node, optionally excluding a subset.
         :param node: Node ID.
-        :param exclude_nodes: Optional. If supplied, this is a list with nodes that should be excluded from the result.
+        :param exclude_nodes: Optional. This is a list with edge IDs that should be excluded from the result.
         Useful for avoiding reversals.
         :return: List of Edges
         """
@@ -1173,17 +1186,18 @@ class StreetNet(object):
             graph = self.g_routing
         else:
             graph = self.g
-        exclude_nodes = exclude_nodes or []
+        exclude_edges = exclude_edges or []
         edges = []
         for new_node, v in graph.edge[node].iteritems():
-            if new_node not in exclude_nodes:
-                for fid, attrs in v.items():
+            # if new_node not in exclude_nodes:
+            for fid, attrs in v.items():
+                if fid not in exclude_edges:
                     edges.append(
                         Edge(self,
                              orientation_neg=attrs['orientation_neg'],
                              orientation_pos=attrs['orientation_pos'],
                              fid=fid)
-                    )
+                        )
         return edges
 
     ### ADDED BY GABS

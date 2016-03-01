@@ -12,12 +12,109 @@ import numpy as np
 from matplotlib import pyplot as plt
 from network import utils
 from validation import hotspot, roc
+import networkx as nx
+from shapely.geometry import LineString
 
 
 def load_test_network():
     # load some toy network data
     test_data = read_gml(TEST_DATA_FILE)
     return ITNStreetNet.from_data_structure(test_data)
+
+
+def toy_network():
+    g = nx.MultiGraph()
+    node_coords = {
+        'a': (0, 0),
+        'b': (5, 0),
+        'c': (5, 2),
+        'd': (5, 3),
+        'e': (6, 2),
+        'f': (7, 0),
+        'g': (7, -2),
+        'h': (5, -2),
+        'i': (5, -3),
+        'j': (4, -2),
+        'k': (0, -2),
+        'l': (-1, -2),
+        'm': (-2 ** .5 / 2., -2 ** .5 / 2. - 2),
+        'n': (0, -3),
+        'o': (1, -2),
+        'p': (0, 2),
+    }
+    edges = [
+        ('a', 'b'),
+        ('a', 'k'),
+        ('k', 'l'),
+        ('k', 'm'),
+        ('k', 'n'),
+        ('k', 'o'),
+        ('b', 'c'),
+        ('b', 'h'),
+        ('c', 'd'),
+        ('c', 'e'),
+        ('b', 'f'),
+        ('f', 'g'),
+        ('g', 'h'),
+        ('b', 'h'),
+        ('h', 'j'),
+        ('h', 'i'),
+        ('a', 'p')
+    ]
+    def attr_factory(start, end):
+        xy0 = node_coords[start]
+        xy1 = node_coords[end]
+        ls = LineString([xy0, xy1])
+        attr_dict = {
+            'linestring': ls,
+            'length': ls.length,
+            'fid': start + end + '1',
+            'orientation_neg': start,
+            'orientation_pos': end
+        }
+        return attr_dict
+
+    for i0, i1 in edges:
+        attr = attr_factory(i0, i1)
+        g.add_edge(i0, i1, key=attr['fid'], attr_dict=attr)
+
+    # add 2 more multilines between a and b
+    attr = attr_factory('a', 'b')
+    ls = LineString([
+        (0, 0),
+        (2.5, 1),
+        (5, 0)
+    ])
+    attr['fid'] = 'ab2'
+    attr['linestring'] = ls
+    attr['length'] = ls.length
+    g.add_edge('a', 'b', key=attr['fid'], attr_dict=attr)
+    ls = LineString([
+        (0, 0),
+        (2.5, -1),
+        (5, 0)
+    ])
+    attr['fid'] = 'ab3'
+    attr['linestring'] = ls
+    g.add_edge('a', 'b', key=attr['fid'], attr_dict=attr)
+
+    # add cycle at p
+    attr = attr_factory('p', 'p')
+    th = np.linspace(-np.pi / 2., 3 * np.pi / 2., 50)
+    x = np.cos(th)
+    y = np.sin(th) + node_coords['p'][1] + 1
+    ls = LineString(zip(x, y))
+    attr['linestring'] = ls
+    attr['length'] = ls.length
+    g.add_edge('p', 'p', key=attr['fid'], attr_dict=attr)
+
+
+    # add node coords
+    for k, v in node_coords.items():
+        g.node[k]['loc'] = v
+
+    net = ITNStreetNet.from_multigraph(g)
+    return net
 
 
 class TestNetworkData(unittest.TestCase):
@@ -192,8 +289,10 @@ class TestUtils(unittest.TestCase):
         self.assertListEqual(res2, obj.cached_walks[start])
 
 
-    def test_network_walker(self):
-        pass
+    def test_fixed_distance_walk(self):
+        net = toy_network()
+        pt = NetPoint.from_cartesian(net, 2.5, 0)
+
 
 
 if __name__ == "__main__":
