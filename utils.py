@@ -396,22 +396,8 @@ def network_walker_from_net_point(net_obj,
     :param verbose:
     :return:
     """
-    g_pos = network_walker(net_obj,
-                           source_node=net_point.edge.orientation_pos,
-                           max_distance=max_distance - net_point.distance_positive,
-                           max_split=max_split,
-                           initial_exclusion=net_point.edge.orientation_neg,
-                           repeat_edges=repeat_edges,
-                           verbose=verbose,
-                           logger=logger)
-    g_neg = network_walker(net_obj,
-                           source_node=net_point.edge.orientation_neg,
-                           max_distance=max_distance - net_point.distance_negative,
-                           max_split=max_split,
-                           initial_exclusion=net_point.edge.orientation_pos,
-                           repeat_edges=repeat_edges,
-                           verbose=verbose,
-                           logger=logger)
+    d_pos = net_point.distance_positive
+    d_neg = net_point.distance_negative
 
     # first edge to generate is always the edge on which net_point is located
     # the path in this case is null, and shouldn't be used.
@@ -422,13 +408,38 @@ def network_walker_from_net_point(net_obj,
                         split=1.)
     yield this_path, net_point.edge
 
-    for g, d in zip([g_pos, g_neg], [net_point.distance_positive, net_point.distance_negative]):
-        for (path, edge) in g:
+    if max_distance is not None and max_distance - d_pos > 0:
+        g_pos = network_walker(net_obj,
+                               source_node=net_point.edge.orientation_pos,
+                               max_distance=max_distance - d_pos,
+                               max_split=max_split,
+                               initial_exclusion=net_point.edge.orientation_neg,
+                               repeat_edges=repeat_edges,
+                               verbose=verbose,
+                               logger=logger)
+        for (path, edge) in g_pos:
             # replace start node with true start
             path.start = net_point
             # add distance already walked
-            path.distance_total += d
+            path.distance_total += d_pos
             yield path, edge
+
+    if max_distance is not None and max_distance - d_neg > 0:
+        g_neg = network_walker(net_obj,
+                               source_node=net_point.edge.orientation_neg,
+                               max_distance=max_distance - d_neg,
+                               max_split=max_split,
+                               initial_exclusion=net_point.edge.orientation_pos,
+                               repeat_edges=repeat_edges,
+                               verbose=verbose,
+                               logger=logger)
+        for (path, edge) in g_neg:
+            # replace start node with true start
+            path.start = net_point
+            # add distance already walked
+            path.distance_total += d_neg
+            yield path, edge
+
 
 def network_walker_uniform_sample_points(net_obj, interval, source_node=None):
     """
@@ -481,7 +492,9 @@ def network_walker_uniform_sample_points(net_obj, interval, source_node=None):
     return points, n_per_edge
 
 
-def network_walker_fixed_distance(net_obj, starting_net_point, distance):
+def network_walker_fixed_distance(net_obj,
+                                  starting_net_point,
+                                  distance):
     """
     Generate NetPoints at fixed distance from starting point
     :param net_obj: StreetNet instance
@@ -495,7 +508,8 @@ def network_walker_fixed_distance(net_obj, starting_net_point, distance):
 
     for path, edge in g:
         if not len(path.nodes):
-            # starting edge
+            # only true for the starting edge
+            # if either node is greater than max_distance away, add a net point
             # TODO: this will break if the starting edge is longer than distance
             continue
         el = edge.length
@@ -503,7 +517,7 @@ def network_walker_fixed_distance(net_obj, starting_net_point, distance):
 
         if path.distance_total + el <= distance:
             if net_obj.g.degree(next_node) == 1:
-                # terminal node
+                # terminal node: stop here
                 node_dist = {
                     path.nodes[-1]: el,
                     next_node: 0.,
