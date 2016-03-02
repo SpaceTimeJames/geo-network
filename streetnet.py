@@ -9,6 +9,7 @@ from collections import defaultdict
 import bisect as bs
 import pysal as psl
 import copy
+import math
 
 try:
     import matplotlib.pyplot as plt
@@ -58,6 +59,13 @@ class Edge(object):
     def linestring(self):
         return self.attrs['linestring']
 
+    # ADDED BY KK
+    @property
+    def linesegs(self):
+        xs = self.linestring.xy[0]
+        ys = self.linestring.xy[1]
+        return [LineSeg((xs[i],ys[i]),(xs[i+1],ys[i+1]),self,self.graph) for i in range(0,len(xs)-1)]
+
     @property
     def length(self):
         return self.attrs['length']
@@ -88,6 +96,12 @@ class Edge(object):
     def node_neg_coords(self):
         return self.graph.g.node[self.orientation_neg]['loc']
 
+    ## ADDED BY KK
+    def plot_edge(self):
+        coords = self.linestring.xy
+        plt.plot(coords[0], coords[1])
+        # plt.show()
+
     def __eq__(self, other):
         """
         Test for equality of two edges.
@@ -112,6 +126,55 @@ class Edge(object):
         """
         return hash((self.orientation_neg, self.orientation_pos, self.fid))
 
+# ADDED BY KK
+class LineSeg(object):
+    def __init__(self, node_neg_coords, node_pos_coords, edge=None, street_net=None):
+        """
+        A class for representing individual line segments.
+        :param street_net:  A pointer to the network on which this segment is defined.
+        :param edge: Edge that the segment belongs to.
+        :param orientation_neg: start point (Shapely point object)
+        :param orientation_pos: end point
+        """
+        self.graph = street_net
+        self.edge = edge
+        self.node_neg_coords = node_neg_coords
+        self.node_pos_coords = node_pos_coords
+
+    @property
+    def bearing(self):
+        return math.degrees(math.atan2(self.node_pos_coords[0] - self.node_neg_coords[0],
+                                       self.node_pos_coords[1] - self.node_neg_coords[1])) % 360
+
+    @property
+    def linestring(self):
+        return LineString(zip(np.array([self.node_neg_coords[0],self.node_pos_coords[0]]),np.array([self.node_neg_coords[1],self.node_pos_coords[1]])))
+
+    @property
+    def length(self):
+        return np.sqrt((self.node_pos_coords[0] - self.node_neg_coords[0])**2 + (self.node_pos_coords[1] - self.node_neg_coords[1])**2)
+
+    @property
+    def distance_to_edge_nodes(self):
+        if self.edge is not None:
+            start = self.edge.linestring.xy[0].index(self.linestring.xy[0][0])
+            end = self.edge.linestring.xy[0].index(self.linestring.xy[0][1])
+            # try:
+            if start != 0:
+                d_start = LineString([(self.edge.linestring.xy[0][i],self.edge.linestring.xy[1][i]) for i in range(start+1)]).length
+            else:
+                d_start = 0
+            if end != (len(self.edge.linestring.xy[0])-1):
+                d_end = LineString([(self.edge.linestring.xy[0][i],self.edge.linestring.xy[1][i]) for i in range(end,len(self.edge.linestring.xy[0]))]).length
+            else:
+                d_end = 0
+
+            edge_node_dist = {}
+            edge_node_dist[self.edge.orientation_neg] = d_start
+            edge_node_dist[self.edge.orientation_pos] = d_end
+
+            return edge_node_dist
+        return None
 
 class NetPoint(object):
 
@@ -251,6 +314,20 @@ class NetPoint(object):
         x = np.concatenate((x[:i], [xp]))
         y = np.concatenate((y[:i], [yp]))
         return LineString(zip(x, y))
+
+    ## ADDED BY KK
+    @property
+    def lineseg(self):
+        """
+        Line segment on which the point lies from negative node to positive node.
+        """
+        x, y = self.edge.linestring.xy
+        d = np.concatenate(([0], np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2).cumsum()))
+        i = bs.bisect_left(d, self.distance_negative)
+        x = x[(i - 1):(i + 1)]
+        y = y[(i - 1):(i + 1)]
+        return LineSeg(node_neg_coords=(x[0], y[0]), node_pos_coords=(x[1], y[1]), edge=self.edge,
+                       street_net=self.graph)
 
 
 class NetPath(object):
@@ -1201,12 +1278,17 @@ class StreetNet(object):
         return edges
 
     ### ADDED BY GABS
-    def edges(self, bounding_poly=None):
+    ### EDITED BY KK
+    def edges(self, bounding_poly=None, radius=None):  # ==> overrides the edges function from networkx
         '''
-        Get all edges in the network.  Optionally return only those that intersect the provided bounding polygon
+        Get all edges in the network.  Optionally return only those that intersect the provided bounding polygon (optionally with a buffer radius)
         '''
+
         if bounding_poly:
+            if radius:
+                bounding_poly = bounding_poly.buffer(radius)
             return [Edge(self, **x[2]) for x in self.g.edges(data=True) if bounding_poly.intersects(x[2]['linestring'])]
+            # g.edges ==> function inherited from networkx
         else:
             return [Edge(self, **x[2]) for x in self.g.edges(data=True)]
 
