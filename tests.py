@@ -22,7 +22,7 @@ def load_test_network():
     return ITNStreetNet.from_data_structure(test_data)
 
 
-def toy_network():
+def toy_network(loop=False):
     g = nx.MultiGraph()
     node_coords = {
         'a': (0, 0),
@@ -80,11 +80,11 @@ def toy_network():
 
     # add 2 more multilines between a and b
     attr = attr_factory('a', 'b')
-    ls = LineString([
-        (0, 0),
-        (2.5, 1),
-        (5, 0)
-    ])
+    th = np.linspace(0, np.pi, 50)[::-1]
+    x = 2.5 * (np.cos(th) + 1)
+    y = np.sin(th)
+    ls = LineString(zip(x, y))
+
     attr['fid'] = 'ab2'
     attr['linestring'] = ls
     attr['length'] = ls.length
@@ -98,15 +98,16 @@ def toy_network():
     attr['linestring'] = ls
     g.add_edge('a', 'b', key=attr['fid'], attr_dict=attr)
 
-    # add cycle at p
-    attr = attr_factory('p', 'p')
-    th = np.linspace(-np.pi / 2., 3 * np.pi / 2., 50)
-    x = np.cos(th)
-    y = np.sin(th) + node_coords['p'][1] + 1
-    ls = LineString(zip(x, y))
-    attr['linestring'] = ls
-    attr['length'] = ls.length
-    g.add_edge('p', 'p', key=attr['fid'], attr_dict=attr)
+    if loop:
+        # add cycle at p
+        attr = attr_factory('p', 'p')
+        th = np.linspace(-np.pi / 2., 3 * np.pi / 2., 50)
+        x = np.cos(th)
+        y = np.sin(th) + node_coords['p'][1] + 1
+        ls = LineString(zip(x, y))
+        attr['linestring'] = ls
+        attr['length'] = ls.length
+        g.add_edge('p', 'p', key=attr['fid'], attr_dict=attr)
 
 
     # add node coords
