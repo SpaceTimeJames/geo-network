@@ -1,8 +1,68 @@
 import numpy as np
 from data.models import NetworkData
 from network.streetnet import NetPoint
+from network import itn
 from network.utils import network_walker_fixed_distance
+from networkx import MultiGraph
+from shapely.geometry import LineString
 from stats import random
+
+
+def create_grid_network(domain_extents,
+                        row_spacing,
+                        col_spacing):
+    """
+    Create a Manhattan network with horizontal / vertical edges.
+    :param domain_extents: (xmin, ymin, xmax, ymax) of the domain
+    :param row_spacing: Distance between horizontal edges
+    :param col_spacing: Distance between vertical edges
+    :return: Streetnet object
+    """
+    xmin, ymin, xmax, ymax = domain_extents
+    # compute edge coords
+    y = np.arange(ymin + row_spacing / 2., ymax, row_spacing)
+    x = np.arange(xmin + col_spacing / 2., xmax, col_spacing)
+    g = MultiGraph()
+    letters = []
+    aint = ord('a')
+    for i in range(26):
+        for j in range(26):
+            for k in range(26):
+                letters.append(chr(aint + i) + chr(aint + j) + chr(aint + k))
+
+    def add_edge(x0, y0, x1, y1):
+        if x0 < 0 or y0 < 0 or x1 >= len(x) or y1 >= len(y):
+            # no link needed
+            return
+        k0 = x0 * x.size + y0
+        k1 = x1 * x.size + y1
+        idx_x0 = letters[k0]
+        idx_x1 = letters[k1]
+        label0 = idx_x0 + str(y0)
+        label1 = idx_x1 + str(y1)
+        ls = LineString([
+            (x[x0], y[y0]),
+            (x[x1], y[y1]),
+        ])
+        atts = {
+            'fid': "%s-%s" % (label0, label1),
+            'linestring': ls,
+            'length': ls.length,
+            'orientation_neg': label0,
+            'orientation_pos': label1
+        }
+        g.add_edge(label0, label1, key=atts['fid'], attr_dict=atts)
+        g.node[label0]['loc'] = (x[x0], y[y0])
+        g.node[label1]['loc'] = (x[x1], y[y1])
+
+    for i in range(x.size):
+        for j in range(y.size):
+            add_edge(i, j-1, i, j)
+            add_edge(i-1, j, i, j)
+            add_edge(i, j, i, j+1)
+            add_edge(i, j, i+1, j)
+
+    return itn.ITNStreetNet.from_multigraph(g)
 
 
 def uniform_random_points_on_net(net, n=1):
