@@ -3,7 +3,7 @@ import numpy as np
 from point_process.utils import linkages, linkage_func_separable
 from data.models import CartesianSpaceTimeData, NetworkData, CartesianData
 import logging
-from streetnet import NetPoint, Edge, NetPath, Node
+from streetnet import NetPoint, Edge, NetPath
 from collections import OrderedDict, defaultdict
 import operator
 
@@ -283,8 +283,8 @@ def network_walker(net_obj,
 
     if source_node is None:
         source_node = net_obj.nodes()[0]
-    else:
-        source_node = Node(net_obj, source_node)
+    # else:
+    #     source_node = Node(net_obj, source_node)
 
     edges_seen = {}  # only used if repeat_edges = False
 
@@ -337,11 +337,13 @@ def network_walker(net_obj,
 
         logger.debug("*** Generation %d ***", count)
         count += 1
-        this_path = NetPath(start=source_node,
-                            end=current_path[-1],
-                            nodes=list(current_path),
-                            distance=dist[-1],
-                            split=current_splits[-1])
+        this_path = NetPath(
+            net_obj,
+            start=source_node,
+            end=current_path[-1],
+            nodes=list(current_path),
+            distance=dist[-1],
+            split=current_splits[-1])
         yield this_path, this_edge
 
         logger.debug("Walking edge %s", this_edge)
@@ -401,11 +403,13 @@ def network_walker_from_net_point(net_obj,
 
     # first edge to generate is always the edge on which net_point is located
     # the path in this case is null, and shouldn't be used.
-    this_path = NetPath(start=net_point,
-                        end=net_point,
-                        nodes=[],
-                        distance=0.,
-                        split=1.)
+    this_path = NetPath(
+        net_obj,
+        start=net_point,
+        end=net_point,
+        nodes=[],
+        distance=0.,
+        split=1.)
     yield this_path, net_point.edge
 
     if max_distance is not None and max_distance - d_pos > 0:
@@ -626,11 +630,13 @@ def network_paths_source_targets(net_obj,
                 logger.debug("Target %d is on this edge at a distance of %.2f" % (reduced_target_idx[i], dist_between))
                 if dist_between <= max_search_distance:
                     logger.debug("Adding target %d to paths" % reduced_target_idx[i])
-                    this_path = NetPath(start=path.start,
-                                        end=t,
-                                        nodes=list(path.nodes),
-                                        distance=dist_between,
-                                        split=path.splits_total)
+                    this_path = NetPath(
+                        net_obj,
+                        start=path.start,
+                        end=t,
+                        nodes=list(path.nodes),
+                        distance=dist_between,
+                        split=path.splits_total)
                     paths[reduced_target_idx[i]].append(this_path)
 
     return dict(paths)

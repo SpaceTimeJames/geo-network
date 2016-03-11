@@ -1,6 +1,7 @@
 __author__ = 'Toby, refactor by Gabs'
 
 from shapely.geometry import Point, LineString, Polygon, MultiLineString
+from shapely import geometry
 import networkx as nx
 import cPickle
 import scipy as sp
@@ -23,21 +24,35 @@ except ImportError:
     MPL = False
 
 
-class Node(unicode):
-    def __new__(cls, net, node_id):
-        if node_id not in net.g.node:
-            raise ValueError("Node ID %s not found in the network" % node_id)
-        self = super(Node, cls).__new__(cls, node_id)
-        self.graph = net
-        return self
+# class Node(unicode):
+#     # pass
+#     def __new__(cls, net, node_id):
+#         if node_id not in net.g.node:
+#             raise ValueError("Node ID %s not found in the network" % node_id)
+#         self = super(Node, cls).__new__(cls, node_id)
+#         self.graph = net
+#         return self
 
 
 class Edge(object):
 
-    def __init__(self, street_net, orientation_pos=None, orientation_neg=None, fid=None, **kwargs):
+    def __init__(self,
+                 street_net,
+                 orientation_pos=None,
+                 orientation_neg=None,
+                 fid=None,
+                 verify=True,
+                 **kwargs):
+        assert orientation_neg is not None, "Negative node ID not provided"
+        assert orientation_pos is not None, "Positive node ID not provided"
+        assert fid is not None, "Edge ID not provided"
+        if verify:
+            assert orientation_neg in street_net.g.node, "Negative node ID %s not found" % orientation_neg
+            assert orientation_pos in street_net.g.node, "Positive node ID %s not found" % orientation_pos
+            assert fid in street_net.g.edge[orientation_neg][orientation_pos], "Edge ID %s not found" % fid
         self.graph = street_net
-        self.orientation_neg = Node(street_net, orientation_neg)
-        self.orientation_pos = Node(street_net, orientation_pos)
+        self.orientation_neg = orientation_neg
+        self.orientation_pos = orientation_pos
         self.fid = fid
 
     # redefine __getattr__ so that any dict-style lookups on this object are redirected to look in the attributes
@@ -334,7 +349,7 @@ class NetPath(object):
 
     ## TODO: consider adding a linestring property - it would be a nice way to verify things
 
-    def __init__(self, start, end, nodes, distance, edges=None, split=None):
+    def __init__(self, net, start, end, nodes, distance, edges=None, split=None):
         """
         Object encoding a route between two points on the network, either NetPoint or existing nodes
         :param start: Start Node/NetPoint
@@ -372,10 +387,10 @@ class NetPath(object):
         if self.edges is not None and len(nodes) != len(edges) - 1:
             raise AttributeError('Path mismatch: node list wrong length')
 
-        if self.start.graph is not self.end.graph:
-            raise AttributeError('Path mismatch: nodes are defined on different graphs')
+        # if self.start.graph is not self.end.graph:
+        #     raise AttributeError('Path mismatch: nodes are defined on different graphs')
 
-        self.graph = self.start.graph
+        self.graph = net
 
     def __eq__(self, other):
         return self.__dict__ == other.__dict__
@@ -438,6 +453,9 @@ class StreetNet(object):
     All cleaning routines stripped out for now because they're uncommented, ugly
     and bloated.
     '''
+    EDGE_ID_KEY = 'fid'
+    NODE0_KEY = 'orientation_neg'
+    NODE1_KEY = 'orientation_pos'
 
     def __init__(self, routing='undirected', srid=27700):
         '''
@@ -468,6 +486,52 @@ class StreetNet(object):
     def from_pickle(cls, filename):
         with open(filename, 'r') as f:
             obj = cPickle.load(f)
+        return obj
+
+    @classmethod
+    def from_shapefile(cls,
+                       filename,
+                       node_neg_key='NODE_1',
+                       node_pos_key='NODE_2',
+                       edge_id_key='TOID'):
+        import fiona
+        obj = cls()
+        node_locs = {}
+        with fiona.open(filename) as s:
+            for edge in s:
+                if edge is None or 'geometry' not in edge or 'properties' not in edge:
+                    print 'Skipping null edge'
+                    continue
+                # attribute dictionary
+                attr = edge['properties']
+                # generate and store shapely linestring
+                ls = geometry.shape(edge['geometry'])
+                attr['linestring'] = ls
+                # pop node and edge IDs
+                node_pos = attr.pop(node_pos_key)
+                node_neg = attr.pop(node_neg_key)
+                edge_id = attr.pop(edge_id_key)
+                # add them again
+                # TODO: are these duplicate attributes required??
+                # can be avoided IF networkx maintains the ordering of nodes when it lists its edges()
+                # if not, will need to store them to maintain a record of this
+                attr['orientation_neg'] = node_neg
+                attr['orientation_pos'] = node_pos
+                attr['fid'] = edge_id
+                # store node locs
+                node_locs[node_neg] = ls.coords[0]
+                node_locs[node_pos] = ls.coords[-1]
+
+                # enforce all lowercase attribute names
+                for k in attr:
+                    if k != k.lower():
+                        attr[k.lower()] = attr.pop(k)
+                # set or overwrite edge length
+                attr['length'] = ls.length
+                obj.g.add_edge(node_neg, node_pos, key=edge_id, attr_dict=attr)
+        for node_id, attr in obj.g.nodes_iter(data=True):
+            attr['loc'] = node_locs[node_id]
+
         return obj
 
     @classmethod
@@ -634,12 +698,8 @@ class StreetNet(object):
             path_patches = []
 
             for e in self.edges():
-                try:
-                    fid = e['fid']
-                except KeyError:
-                    import ipdb; ipdb.set_trace()
-
-                ls = e['linestring']
+                fid = e.fid
+                ls = e.linestring
             # for n1,n2,fid,attr in self.g.edges(data=True, keys=True):
 
                 # bbox_check=[min_x<=p[0]<=max_x and min_y<=p[1]<=max_y for p in attr['polyline']]
@@ -942,6 +1002,8 @@ class StreetNet(object):
         if method not in known_methods:
             raise AttributeError("Unrecognised method")
 
+        graph = net_point_from.graph
+
         node_from_neg = net_point_from.edge.orientation_neg
         node_from_pos = net_point_from.edge.orientation_pos
         fid_from = net_point_from.edge.fid
@@ -963,11 +1025,13 @@ class StreetNet(object):
             path_edges=[fid_from]
             path_distances=[abs(dist_diff)]
             path_nodes=[]
-            path = NetPath(start=net_point_from,
-                           end=net_point_to,
-                           edges=path_edges,
-                           distance=path_distances,
-                           nodes=path_nodes)
+            path = NetPath(
+                graph,
+                start=net_point_from,
+                end=net_point_to,
+                edges=path_edges,
+                distance=path_distances,
+                nodes=path_nodes)
 
         else:
             # Insert a new 'from' node
@@ -1021,11 +1085,13 @@ class StreetNet(object):
                     path_edges.append(fid_shortest)
                     path_distances.append(self.g[v][w][fid_shortest]['length'])
 
-                path = NetPath(start=net_point_from,
-                               end=net_point_to,
-                               edges=path_edges,
-                               distance=path_distances,
-                               nodes=path_nodes)
+                path = NetPath(
+                    graph,
+                    start=net_point_from,
+                    end=net_point_to,
+                    edges=path_edges,
+                    distance=path_distances,
+                    nodes=path_nodes)
 
             except Exception:
 
@@ -1044,6 +1110,8 @@ class StreetNet(object):
 
 
     def path_directed(self, net_point_from, net_point_to, **kwargs):
+
+        graph = net_point_from.graph
 
         n1_1 = net_point_from.edge.orientation_neg
         n2_1 = net_point_from.edge.orientation_pos
@@ -1069,11 +1137,13 @@ class StreetNet(object):
                 path_distances=[dist_diff]
                 path_nodes=[]
 
-                path = NetPath(start=net_point_from,
-                               end=net_point_to,
-                               edges=path_edges,
-                               distance=path_distances,
-                               nodes=path_nodes)
+                path = NetPath(
+                    graph,
+                    start=net_point_from,
+                    end=net_point_to,
+                    edges=path_edges,
+                    distance=path_distances,
+                    nodes=path_nodes)
 
             else:
 
@@ -1095,11 +1165,13 @@ class StreetNet(object):
                     path_distances=[node_dist2[p1_node]-node_dist1[p1_node]]
                     path_nodes=[]
 
-                    path = NetPath(start=net_point_from,
-                                   end=net_point_to,
-                                   edges=path_edges,
-                                   distance=path_distances,
-                                   nodes=path_nodes)
+                    path = NetPath(
+                        graph,
+                        start=net_point_from,
+                        end=net_point_to,
+                        edges=path_edges,
+                        distance=path_distances,
+                        nodes=path_nodes)
 
                 else:
 
@@ -1127,11 +1199,13 @@ class StreetNet(object):
                         path_edges.append(fid_1)
                         path_distances.append(node_dist2[p2_node])
 
-                        path = NetPath(start=net_point_from,
-                                       end=net_point_to,
-                                       edges=path_edges,
-                                       distance=path_distances,
-                                       nodes=path_nodes)
+                        path = NetPath(
+                            graph,
+                            start=net_point_from,
+                            end=net_point_to,
+                            edges=path_edges,
+                            distance=path_distances,
+                            nodes=path_nodes)
 
                     except:
 
@@ -1227,11 +1301,13 @@ class StreetNet(object):
                     path_edges.append(fid_shortest)
                     path_distances.append(self.g_routing[v][w][fid_shortest]['length'])
 
-                path = NetPath(start=net_point_from,
-                               end=net_point_to,
-                               edges=path_edges,
-                               distance=path_distances,
-                               nodes=path_nodes)
+                path = NetPath(
+                    graph,
+                    start=net_point_from,
+                    end=net_point_to,
+                    edges=path_edges,
+                    distance=path_distances,
+                    nodes=path_nodes)
 
             except:
 
@@ -1287,10 +1363,17 @@ class StreetNet(object):
         if bounding_poly:
             if radius:
                 bounding_poly = bounding_poly.buffer(radius)
-            return [Edge(self, **x[2]) for x in self.g.edges(data=True) if bounding_poly.intersects(x[2]['linestring'])]
+            return [Edge(self,
+                         orientation_neg=x[0],
+                         orientation_pos=x[1],
+                         fid=x[2]
+                         **x[3]) for x in self.g.edges(data=True, keys=True) if bounding_poly.intersects(x[3]['linestring'])]
             # g.edges ==> function inherited from networkx
         else:
-            return [Edge(self, **x[2]) for x in self.g.edges(data=True)]
+            return [Edge(self,
+                         orientation_neg=x[0],
+                         orientation_pos=x[1],
+                         fid=x[2]) for x in self.g.edges(data=True, keys=True)]
 
     ### ADDED BY GABS
     def nodes(self, bounding_poly=None):
@@ -1298,9 +1381,9 @@ class StreetNet(object):
         Get all nodes in the network. Optionally return only those that intersect the provided bounding polygon
         """
         if bounding_poly:
-            return [Node(self, x[0]) for x in self.g.nodes(data=True) if bounding_poly.intersects(Point(*x[1]['loc']))]
+            return [x[0] for x in self.g.nodes(data=True) if bounding_poly.intersects(Point(*x[1]['loc']))]
         else:
-            return [Node(self, x) for x in self.g.nodes()]
+            return self.g.nodes()
 
     @property
     def edge(self):
