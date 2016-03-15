@@ -24,16 +24,6 @@ except ImportError:
     MPL = False
 
 
-# class Node(unicode):
-#     # pass
-#     def __new__(cls, net, node_id):
-#         if node_id not in net.g.node:
-#             raise ValueError("Node ID %s not found in the network" % node_id)
-#         self = super(Node, cls).__new__(cls, node_id)
-#         self.graph = net
-#         return self
-
-
 class Edge(object):
 
     def __init__(self,
@@ -515,9 +505,9 @@ class StreetNet(object):
                 # TODO: are these duplicate attributes required??
                 # can be avoided IF networkx maintains the ordering of nodes when it lists its edges()
                 # if not, will need to store them to maintain a record of this
-                attr['orientation_neg'] = node_neg
-                attr['orientation_pos'] = node_pos
-                attr['fid'] = edge_id
+                attr[cls.NODE0_KEY] = node_neg
+                attr[cls.NODE0_KEY] = node_pos
+                attr[cls.EDGE_ID_KEY] = edge_id
                 # store node locs
                 node_locs[node_neg] = ls.coords[0]
                 node_locs[node_pos] = ls.coords[-1]

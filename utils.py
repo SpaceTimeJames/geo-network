@@ -259,8 +259,10 @@ class NetworkWalker(object):
                 self.logger.addHandler(logging.NullHandler())
 
         if verbose:
+            self.verbose = True
             self.logger.setLevel(logging.DEBUG)
         else:
+            self.verbose = False
             self.logger.setLevel(logging.INFO)
 
         # this dictionary keeps track of the walks already carried out
@@ -289,14 +291,19 @@ class NetworkWalker(object):
         return self.caching_func(start, g)
 
     def walk_from_net_point(self, start):
-        g = network_walker_from_net_point(self.net_obj,
-                                          start,
-                                          max_distance=self.max_distance,
-                                          max_split=self.max_split,
-                                          repeat_edges=self.repeat_edges,
-                                          logger=self.logger)
+        # try to retrieve from the cache
+        try:
+            return (t for t in self.cached_walks[start])
+        except KeyError:
+            g = network_walker_from_net_point(self.net_obj,
+                                              start,
+                                              max_distance=self.max_distance,
+                                              max_split=self.max_split,
+                                              repeat_edges=self.repeat_edges,
+                                              logger=self.logger,
+                                              verbose=self.verbose)
 
-        return self.caching_func(start, g)
+            return self.caching_func(start, g)
 
     def walker(self, start=None):
         if start is None:
@@ -351,6 +358,7 @@ class NetworkWalker(object):
                                              self.targets,
                                              max_distance,
                                              max_split=self.max_split,
+                                             verbose=self.verbose,
                                              logger=self.logger)
         self.cached_source_target_paths[start] = (max_distance, paths)
         return paths
@@ -401,8 +409,6 @@ def network_walker(net_obj,
 
     if source_node is None:
         source_node = net_obj.nodes()[0]
-    # else:
-    #     source_node = Node(net_obj, source_node)
 
     edges_seen = {}  # only used if repeat_edges = False
 
@@ -529,6 +535,8 @@ def network_walker_from_net_point(net_obj,
         distance=0.,
         split=1.)
     yield this_path, net_point.edge
+
+    ## TODO: add support for max_distance=None
 
     if max_distance is not None and max_distance - d_pos > 0:
         g_pos = network_walker(net_obj,
