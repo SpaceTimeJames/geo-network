@@ -5,7 +5,24 @@ from network import itn
 from network.utils import network_walker_fixed_distance
 from networkx import MultiGraph
 from shapely.geometry import LineString
-from stats import random
+
+
+def weighted_random_selection(weights, n=1, prng=None):
+    """
+    Select the *indices* of n points at random, weighted by the supplied weights matrix
+    :param weights:
+    :param n:
+    :param prng: Optionally supply a np.random.Random() instance if control is required
+    :return: Iterable of n indices, referencing the weights array, or scalar index if n == 1
+    """
+    prng = prng or np.random.RandomState()
+    totals = np.cumsum(weights)
+    throws = prng.rand(n) * totals[-1]
+    res = np.searchsorted(totals, throws)
+    if n == 1:
+        return res[0]
+    else:
+        return res
 
 
 def create_grid_network(domain_extents,
@@ -69,7 +86,7 @@ def uniform_random_points_on_net(net, n=1):
     """
     Draw n NetPoints at random that lie on the supplied network
     :param net:
-    :param n:
+    :param n: Number of points to draw
     :return: NetworkData array if n>1, else NetPoint
     """
     all_edges = net.edges()
@@ -79,9 +96,9 @@ def uniform_random_points_on_net(net, n=1):
 
     # random edge draw weighted by segment length
     if n == 1:
-        selected_edges = [all_edges[random.weighted_random_selection(ls, n=n)]]
+        selected_edges = [all_edges[weighted_random_selection(ls, n=n)]]
     else:
-        ind = random.weighted_random_selection(ls, n=n)
+        ind = weighted_random_selection(ls, n=n)
         selected_edges = [all_edges[i] for i in ind]
 
     # random location along each edge
