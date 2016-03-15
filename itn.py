@@ -19,8 +19,6 @@ routing. Most of the cleaning methods are omitted here for brevity.
 
 Author: Toby Davies
 """
-from network.utils import network_point_coverage
-
 from shapely.geometry import Point, LineString, Polygon
 import xml.sax as sax
 import datetime
