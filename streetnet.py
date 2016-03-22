@@ -457,6 +457,8 @@ class StreetNet(object):
         self.g = nx.MultiGraph()
         self.g_routing = nx.MultiDiGraph()
         self.directed = routing.lower() == 'directed'
+        self.edge_index = None
+        self.edge_coord_map = None
 
     @classmethod
     def from_data_structure(cls, data, srid=None):
@@ -619,6 +621,15 @@ class StreetNet(object):
         as such.
         '''
         raise NotImplementedError()
+
+    def build_edge_index(self):
+        '''
+        This builds a KD tree for all edge coordinates and a corresponding array that maps from edge coordinate to
+        the edge itself.
+        '''
+        self.edge_coord_map = np.cumsum([len(t.linestring.xy[0]) for t in self.edges()])
+        edge_coords = np.hstack([t.linestring.xy for t in self.edges()]).transpose()
+        self.edge_index = sp.spatial.KDTree(edge_coords)
 
     def shortest_edges_network(self):
         """
@@ -901,6 +912,25 @@ class StreetNet(object):
                     edge_index[(i,j)].append((n1,n2,fid))
 
         return GridEdgeIndex(gridsize, x_grid, y_grid, edge_index)
+
+    def snap_point(self, x, y, max_distance=None):
+        '''
+        Snap a single point to the network, subject to an optional maximum snapping distance
+        :param x:
+        :param y:
+        :param max_distance: If None, this will be taken as infinite
+        :return: Tuple (NetPoint, snapping distance) or (None, None) if no snapping can be carried out
+        '''
+        if max_distance is None:
+            max_distance = np.inf
+        if self.edge_index is None:
+            self.build_edge_index()
+        # get nearest edge
+        dist, cidx = self.edge_index.query((x, y), distance_upper_bound=max_distance)
+        if np.isinf(dist):
+            return None, None
+
+
 
     def closest_edges_euclidean(self, x, y, grid_edge_index=None, radius=50, max_edges=1):
         '''
@@ -1353,17 +1383,11 @@ class StreetNet(object):
         if bounding_poly:
             if radius:
                 bounding_poly = bounding_poly.buffer(radius)
-            return [Edge(self,
-                         orientation_neg=x[0],
-                         orientation_pos=x[1],
-                         fid=x[2]
-                         **x[3]) for x in self.g.edges(data=True, keys=True) if bounding_poly.intersects(x[3]['linestring'])]
+            return [Edge(self, **x[2])
+                    for x in self.g.edges(data=True) if bounding_poly.intersects(x[2]['linestring'])]
             # g.edges ==> function inherited from networkx
         else:
-            return [Edge(self,
-                         orientation_neg=x[0],
-                         orientation_pos=x[1],
-                         fid=x[2]) for x in self.g.edges(data=True, keys=True)]
+            return [Edge(self, **x[2]) for x in self.g.edges(data=True)]
 
     ### ADDED BY GABS
     def nodes(self, bounding_poly=None):
