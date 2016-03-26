@@ -54,7 +54,13 @@ class Edge(object):
             self.orientation_neg,
             self.orientation_pos,
             self.fid
-        )
+        )   
+    
+    @classmethod
+    def from_fid(self, street_net, fid):
+        for edge in street_net.edges():
+            if edge.fid == fid:
+                return edge
 
     @property
     def attrs(self):
