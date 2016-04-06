@@ -508,7 +508,7 @@ class StreetNet(object):
                 # can be avoided IF networkx maintains the ordering of nodes when it lists its edges()
                 # if not, will need to store them to maintain a record of this
                 attr[cls.NODE0_KEY] = node_neg
-                attr[cls.NODE0_KEY] = node_pos
+                attr[cls.NODE1_KEY] = node_pos
                 attr[cls.EDGE_ID_KEY] = edge_id
                 # store node locs
                 node_locs[node_neg] = ls.coords[0]
