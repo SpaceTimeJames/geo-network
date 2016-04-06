@@ -63,11 +63,12 @@ class NetworkWalkerBase(object):
                            max_distance=max_distance,
                            max_split=self.max_split,
                            repeat_edges=self.repeat_edges,
+                           initial_exclusion=initial_exclude_edge,
                            reflect=self.reflect,
                            allow_cycles=self.allow_cycles,
                            logger=self.logger)
 
-        return self.caching_func(start, g)
+        return self.caching_func(start_node, g, max_distance=max_distance, initial_exclusion=initial_exclude_edge)
 
     def walk_from_net_point(self, start):
         # try to retrieve from the cache
