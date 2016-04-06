@@ -1,4 +1,5 @@
 import logging
+from streetnet import NetPath
 
 def get_next_node(edge, node):
     """ Get the ID of the node that is NOT node """
@@ -148,15 +149,17 @@ def network_walker(net_obj,
                    source_node=None,
                    max_distance=None,
                    max_split=None,
-                   repeat_edges=False,
+                   repeat_edges=True,
                    initial_exclusion=None,
+                   reflect=True,
+                   allow_cycles=True,
                    verbose=False,
                    logger=None):
-
-
     """
     Generator, yielding (path, distance, edge) tuples giving the path taken, total distance travelled and
     edge of a network walker.
+    NB: certain combinations of parameters will result in an infinite generator, e.g. enabling cycles and providing no
+    max distance or split count
     :param net_obj:
     :param source_node: Optional. The node to start at. Otherwise the first listed node will be used.
     :param max_distance: Optional. The maximum distance to travel. Any edge that BEGINS within this distance of the
@@ -166,6 +169,8 @@ def network_walker(net_obj,
     :param repeat_edges: If True then the walker will cover the same edges more than once, provided that doing so
     doesn't result in a loop.  Results in many more listed paths. Required for KDE normalisation, but should be set
     to False for search and sampling operations.
+    :param reflect: If True (default), turn around at single degree nodes and continue walking
+    :param allow_cycles: If True (default), permit walking around cycles.
     :param initial_exclusion: Optionally provide the ID of an edge to exclude when choosing the first 'step'. This is
     necessary when searching from a NetPoint.
     :param verbose: If True, log debug info relating to the algorithm
@@ -204,82 +209,82 @@ def network_walker(net_obj,
     # A stack that lists the next nodes to be searched. Each item in the stack
     # is a list of edges accessible from the previous node, excluding a reversal.
 
-    stack = [net_obj.next_turn(source_node, exclude_edges=initial_exclusion)]  # list of lists
+    stack = [net_obj.next_turn(source_node, previous_edge_id=initial_exclusion)]  # list of lists
 
     # keep a tally of generation number
     count = 0
+    count_edge = 0
 
     # The stack will empty when the source has been exhausted
     while stack:
 
         logger.debug("Stack has length %d. Picking from top of the stack.", len(stack))
+        this_edge_list = stack.pop()
+        this_path = current_path.pop()
+        this_split = current_splits.pop()
+        this_distance = dist.pop()
+        logger.debug("We have travelled %.2f length units and split %d times to this point.",
+                     (this_distance, this_split))
 
-        if not len(stack[-1]):
-            # no more nodes to search from previous edge
-            # remove the now empty list from the stack
-            stack.pop()
-            # Backtrack to the previous position on the current path
-            current_path.pop()
-            current_splits.pop()
-            # Adjust the distance list to represent the new state of current_path too
-            dist.pop()
-
-            logger.debug("Options exhausted. Backtracking...")
-
+        if not len(this_edge_list):
+            logger.debug("The edge list was empty, so there's nothing left to do from here.")
             # skip to next iteration
             continue
 
-        # otherwise, grab and remove the next edge to search
-        this_edge = stack[-1].pop()
+        for count_node, this_edge in enumerate(this_edge_list):
 
-        if not repeat_edges:
-            if this_edge in edges_seen:
-                logger.debug("Have already seen this edge on iteration %d, so won't repeat it.", edges_seen[this_edge])
-                # skip to next iteration
+            if not repeat_edges:
+                if this_edge in edges_seen:
+                    logger.debug("We saw this edge on iteration %s and repeat_edges=False so won't repeat it.",
+                                 edges_seen[this_edge])
+                    # skip to next iteration
+                    continue
+                else:
+                    logger.debug("This is the first time we've walked this edge")
+                    edges_seen[this_edge] = '%d.%d' % (count_edge, count_node)
+
+            logger.debug("*** Edge %d ***", count_edge)
+            count_edge += 1
+            out_path = NetPath(
+                net_obj,
+                start=source_node,
+                end=this_path[-1],
+                nodes=this_path,
+                distance=this_distance,
+                split=current_splits[-1])
+            yield out_path, this_edge
+
+            # Add the next edges to be explored from the end of this edge
+            previous_node = this_path[-1]
+            node = get_next_node(this_edge, previous_node)
+
+            logger.debug("On edge %s. The next node is %s.", this_edge, node)
+
+            # check whether next node is within reach (if max_distance has been supplied)
+            dist_to_next_node = this_distance + this_edge.length
+            if max_distance is not None and dist_to_next_node > max_distance:
+                logger.debug("This node is beyond max_distance (%.2f > %.2f), won't explore further.",
+                             dist_to_next_node,
+                             max_distance)
                 continue
-            else:
-                logger.debug("This is the first time we've walked this edge")
-                edges_seen[this_edge] = count
 
-        logger.debug("*** Generation %d ***", count)
-        count += 1
-        this_path = NetPath(
-            net_obj,
-            start=source_node,
-            end=current_path[-1],
-            nodes=list(current_path),
-            distance=dist[-1],
-            split=current_splits[-1])
-        yield this_path, this_edge
-
-        logger.debug("Walking edge %s", this_edge)
-
-        # check whether next node is within reach (if max_distance has been supplied)
-        if max_distance is not None:
-            dist_to_next_node = dist[-1] + this_edge.length
-            if dist_to_next_node > max_distance:
-                logger.debug("Walking to the end of this edge is too far (%.2f), so won't explore further.",
-                             dist_to_next_node)
+            # check whether the number of branches is below tolerance (if max_splits has been supplied)
+            next_splits = this_split * max(net_obj.degree(node) - 1., 1.)
+            if max_split is not None and next_splits > max_split:
+                logger.debug("Path beyond this node is more branched than max_split (%d > %d), won't explore further.",
+                             next_splits,
+                             max_split)
                 continue
 
-        # Add the next node's edges to the stack if it hasn't already been visited
-        # TODO: if we need to support loops, then skip this checking stage?
-        previous_node = current_path[-1]
-        node = get_next_node(this_edge, previous_node)
+            # check for cycles (if they are forbidden)
+            # it's a REFLECTION if the previous edge is the same as the next
+            if not allow_cycles and node in this_path:
+                logger.debug("We have already passed through this node and cycles are not allowed.")
+                continue
 
-        # check whether the number of branches is below tolerance (if max_splits has been supplied)
-        next_splits = current_splits[-1] * max(net_obj.degree(node) - 1., 1.)
-        if max_split is not None and next_splits > max_split:
-            logger.debug("The next node has too many branches, so won't explore further.")
-            continue
-
-        # has this node been visited already?
-        if node not in current_path:
-            logger.debug("Haven't visited this before, so adding to the stack.")
-            stack.append(net_obj.next_turn(node, exclude_edges=[this_edge.fid]))
-            current_path.append(node)
+            next_edges = net_obj.next_turn(node, previous_edge_id=this_edge.fid, reflection=reflect)
+            logger.debug("Appending %d new edges to the stack.", len(next_edges))
+            stack.append(next_edges)
+            current_path.append(this_path + [node])
             current_splits.append(next_splits)
-            dist.append(dist[-1] + this_edge.length)
-            logger.debug("We are now distance %.2f away from the source point", dist[-1])
-        else:
-            logger.debug("We were already here on iteration %d so ignoring it", (current_path.index(node) + 1))
+            dist.append(dist_to_next_node)

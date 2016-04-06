@@ -107,11 +107,14 @@ class Edge(object):
         plt.plot(coords[0], coords[1])
         # plt.show()
 
+    @property
+    def is_loop(self):
+        return self.orientation_neg == self.orientation_pos
+
     def __eq__(self, other):
         """
         Test for equality of two edges.
-        If the underlying graph is undirected, then it doesn't matter which way around the nodes are defined.
-        If it is directed, the node order is important.
+        NB the node order is fixed in the parent graph and must always match
         :param other:
         :return: Bool
         """
@@ -672,11 +675,13 @@ class StreetNet(object):
                      extent=None,
                      show_edges=True,
                      show_nodes=False,
+                     show_node_labels=False,
                      edge_width=1,
                      node_size=7,
                      edge_outer_col='k',
                      edge_inner_col=None,
-                     node_col='r'):
+                     node_col='r',
+                     buffer=0.01):
 
         '''
         This plots the section of the network that lies within a given bounding box.
@@ -684,6 +689,7 @@ class StreetNet(object):
         :param ax: Optional axis handle for plotting, otherwise use the current axes/make a new figure.
         :param edge_inner_col: [Optional] If a scalar, fill all edges with this value.
         If a dict then each key is an edge ID with corresponding value indicating the fill colour for that edge.
+        :param buffer: The fraction of the extent in each axis to use around the bounding box when setting ax lims.
         '''
         min_x, min_y, max_x, max_y = extent if extent is not None else self.extent
         bounding_poly = Polygon((
@@ -745,8 +751,14 @@ class StreetNet(object):
             x,y = zip(*node_points_bbox)
             ax.scatter(x,y,c=node_col,s=node_size,zorder=5)
 
-        ax.set_xlim(min_x,max_x)
-        ax.set_ylim(min_y,max_y)
+        if show_node_labels:
+            for node in self.g:
+                ax.annotate(node, self.g.node[node]['loc'], fontsize=12, alpha=0.7, color='r')
+
+        ex = (max_x - min_x) * buffer
+        ey = (max_y - min_y) * buffer
+        ax.set_xlim(min_x - ex, max_x + ex)
+        ax.set_ylim(min_y - ey, max_y + ey)
         ax.set_aspect('equal')
         # remove x and y ticks as these rarely add anything
         ax.set_xticks([])
@@ -1347,28 +1359,34 @@ class StreetNet(object):
         return path
 
     ### ADDED BY GABS
-    def next_turn(self, node, exclude_edges=None):
+    def next_turn(self, node, previous_edge_id=None, reflection=False):
         """
         Compute the options for routes at from the given node, optionally excluding a subset.
         :param node: Node ID.
-        :param exclude_nodes: Optional. This is a list with edge IDs that should be excluded from the result.
-        Useful for avoiding reversals.
+        :param previous_edge_id: Optional. This is the ID of the edge that was previously being travelled. If supplied,
+        it is used to prevent reversals (unless they are also reflections and reflection=True)
+        :param reflection: Permit reflections at nodes of degree 1 (providing the routing graph supports them)
         :return: List of Edges
         """
         if self.directed:
             graph = self.g_routing
         else:
             graph = self.g
-        exclude_edges = exclude_edges or []
+
+        b_reflection = False
+        if reflection:
+            if graph.degree(node) == 1:
+                b_reflection = True
+
         edges = []
         for new_node, v in graph.edge[node].iteritems():
             # if new_node not in exclude_nodes:
             for fid, attrs in v.items():
-                if fid not in exclude_edges:
+                if fid != previous_edge_id or b_reflection:
                     edges.append(
                         Edge(self,
-                             orientation_neg=attrs['orientation_neg'],
-                             orientation_pos=attrs['orientation_pos'],
+                             orientation_neg=attrs[self.NODE0_KEY],
+                             orientation_pos=attrs[self.NODE1_KEY],
                              fid=fid)
                         )
         return edges

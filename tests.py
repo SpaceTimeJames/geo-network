@@ -118,6 +118,139 @@ def toy_network(loop=False):
     return net
 
 
+class TestEdge(unittest.TestCase):
+    def setUp(self):
+        self.net = toy_network(loop=True)
+
+    def test_construction(self):
+        # missing node or edge IDs
+        with self.assertRaises(AssertionError):
+            e = Edge(self.net,
+                     orientation_neg='a',
+                     fid='ab1')
+        with self.assertRaises(AssertionError):
+            e = Edge(self.net,
+                     orientation_pos='b',
+                     fid='ab1')
+        with self.assertRaises(AssertionError):
+            e = Edge(self.net,
+                     orientation_neg='a',
+                     orientation_pos='b')
+
+        # without verification, anything goes
+        e = Edge(self.net, orientation_neg='foo', orientation_pos='bar', fid='baz', verify=False)
+
+        # with verification, everything must match
+        with self.assertRaises(AssertionError):
+            e = Edge(self.net, orientation_neg='a', orientation_pos='foo', fid='ab1', verify=True)
+
+        with self.assertRaises(AssertionError):
+            e = Edge(self.net, orientation_neg='a', orientation_pos='b', fid='foo', verify=True)
+
+        with self.assertRaises(AssertionError):
+            e = Edge(self.net, orientation_neg='foo', orientation_pos='b', fid='ab1', verify=True)
+
+        with self.assertRaises(AssertionError):
+            # the edge ID does not match the nodes
+            e = Edge(self.net, orientation_neg='a', orientation_pos='b', fid='pp1', verify=True)
+
+        e = Edge(self.net, orientation_neg='a', orientation_pos='b', fid='ab1', verify=True)
+
+    def test_equality(self):
+        e1 = [e for e in self.net.edges() if e.fid == 'ab3'][0]
+        e2 = Edge(self.net, orientation_neg='a', orientation_pos='b', fid='ab3', verify=True)
+        self.assertTrue(e1 == e2)
+
+        e2 = Edge(self.net, orientation_neg='a', orientation_pos='b', fid='ab2', verify=True)
+        self.assertFalse(e1 == e2)
+
+        e1 = [e for e in self.net.edges() if e.fid == 'pp1'][0]
+        e2 = Edge(self.net, orientation_neg='p', orientation_pos='p', fid='pp1', verify=True)
+        self.assertTrue(e1 == e2)
+
+
+    def test_loop_detection(self):
+        for e in self.net.edges():
+            if e.orientation_pos == e.orientation_neg:
+                self.assertTrue(e.is_loop)
+            else:
+                self.assertFalse(e.is_loop)
+
+
+class TestNetwork(unittest.TestCase):
+    def setUp(self):
+        self.net = toy_network(loop=True)
+
+    def test_next_turn(self):
+        """
+        Test the next_turn method, which returns the edges that can be reached from a given node with optional edge
+        exclusion and reflection
+        """
+        expct = {'ab1', 'ab2', 'ab3', 'bc1', 'bf1', 'bh1'}
+        res = self.net.next_turn('b')
+        edges = set([e.fid for e in res])
+        self.assertEqual(edges, expct)
+
+        # a duff exclusion makes no difference
+        res = self.net.next_turn('b', 'foo')
+        edges = set([e.fid for e in res])
+        self.assertEqual(edges, expct)
+
+        # enabling reflections makes no difference
+        res = self.net.next_turn('b', reflection=True)
+        edges = set([e.fid for e in res])
+        self.assertEqual(edges, expct)
+
+        # a real exclusion
+        for excl in expct:
+            res = self.net.next_turn('b', excl, reflection=False)
+            edges = set([e.fid for e in res])
+            this_expct = expct - {excl}
+            self.assertEqual(edges, this_expct)
+
+        # a real exclusion + reflections
+        for excl in expct:
+            res = self.net.next_turn('b', excl, reflection=True)
+            edges = set([e.fid for e in res])
+            this_expct = expct - {excl}
+            self.assertEqual(edges, this_expct)
+
+        # repeat for a node of degree 1
+        # no previous edge supplied
+        res = self.net.next_turn('e')
+        edges = set([e.fid for e in res])
+        self.assertEqual(edges, {'ce1'})
+
+        # previous edge supplied
+        res = self.net.next_turn('e', previous_edge_id='ce1')
+        edges = set([e.fid for e in res])
+        self.assertEqual(edges, set())
+
+        # previous edge + reflection
+        res = self.net.next_turn('e', previous_edge_id='ce1', reflection=True)
+        edges = set([e.fid for e in res])
+        self.assertEqual(edges, {'ce1'})
+
+        # a loop
+        res = self.net.next_turn('p')
+        edges = set([e.fid for e in res])
+        self.assertEqual(edges, {'ap1', 'pp1'})
+
+        # loop + previous edge
+        res = self.net.next_turn('p', previous_edge_id='ap1')
+        edges = set([e.fid for e in res])
+        self.assertEqual(edges, {'pp1'})
+
+        res = self.net.next_turn('p', previous_edge_id='pp1')
+        edges = set([e.fid for e in res])
+        self.assertEqual(edges, {'ap1'})
+
+        # reflection makes no difference
+        res = self.net.next_turn('p', previous_edge_id='ap1', reflection=True)
+        edges = set([e.fid for e in res])
+        self.assertEqual(edges, {'pp1'})
+
+
 class TestNetworkData(unittest.TestCase):
 
     def setUp(self):

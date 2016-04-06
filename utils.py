@@ -422,7 +422,7 @@ def network_walker(net_obj,
     # A stack that lists the next nodes to be searched. Each item in the stack
     # is a list of edges accessible from the previous node, excluding a reversal.
 
-    stack = [net_obj.next_turn(source_node, exclude_edges=initial_exclusion)]  # list of lists
+    stack = [net_obj.next_turn(source_node, previous_edge_id=initial_exclusion)]  # list of lists
 
     # keep a tally of generation number
     count = 0
@@ -494,7 +494,7 @@ def network_walker(net_obj,
         # has this node been visited already?
         if node not in current_path:
             logger.debug("Haven't visited this before, so adding to the stack.")
-            stack.append(net_obj.next_turn(node, exclude_edges=[this_edge.fid]))
+            stack.append(net_obj.next_turn(node, previous_edge_id=this_edge.fid))
             current_path.append(node)
             current_splits.append(next_splits)
             dist.append(dist[-1] + this_edge.length)
