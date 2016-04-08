@@ -19,6 +19,15 @@ class NetworkWalkerBase(object):
                  verbose=False,
                  logger=None):
 
+        if reflect:
+            if not repeat_edges:
+                raise AttributeError("When reflect==True, repeat_edges must also be True.")
+            if not allow_cycles:
+                raise AttributeError("When reflect==True, allow_cycles must also be True.")
+        if allow_cycles:
+            if not repeat_edges:
+                raise AttributeError("When allow_cycles==True, repeat_edges must also be True.")
+
         self.net = net
         self.max_split = max_split
         self.repeat_edges = repeat_edges
@@ -176,6 +185,15 @@ def network_walker(net_obj,
     :param verbose: If True, log debug info relating to the algorithm
     :param logger: If supplied, use this logger and ignore the value of verbose.
     """
+    if reflect:
+        if not repeat_edges:
+            raise AttributeError("When reflect==True, repeat_edges must also be True.")
+        if not allow_cycles:
+            raise AttributeError("When reflect==True, allow_cycles must also be True.")
+    if allow_cycles:
+        if not repeat_edges:
+            raise AttributeError("When allow_cycles==True, repeat_edges must also be True.")
+
     if logger is None:
         logger = logging.getLogger("network_walker.logger")
         logger.handlers = []  # make sure logger has no handlers to begin with
@@ -199,8 +217,8 @@ def network_walker(net_obj,
 
     edges_seen = {}  # only used if repeat_edges = False
 
-    # A list which monitors the current state of the path
-    current_path = [source_node]
+    # A list of lists which monitors the current state of the path
+    current_path = [[source_node]]
     current_splits = [max(net_obj.degree(source_node) - 1., 1.)]
 
     # A list that records the distance to each step on the current path. This is initially equal to zero
@@ -224,7 +242,8 @@ def network_walker(net_obj,
         this_split = current_splits.pop()
         this_distance = dist.pop()
         logger.debug("We have travelled %.2f length units and split %d times to this point.",
-                     (this_distance, this_split))
+                     this_distance,
+                     this_split)
 
         if not len(this_edge_list):
             logger.debug("The edge list was empty, so there's nothing left to do from here.")
@@ -243,7 +262,7 @@ def network_walker(net_obj,
                     logger.debug("This is the first time we've walked this edge")
                     edges_seen[this_edge] = '%d.%d' % (count_edge, count_node)
 
-            logger.debug("*** Edge %d ***", count_edge)
+            logger.debug("*** Edge #%d (%s) ***", count_edge, this_edge.fid)
             count_edge += 1
             out_path = NetPath(
                 net_obj,
@@ -251,7 +270,7 @@ def network_walker(net_obj,
                 end=this_path[-1],
                 nodes=this_path,
                 distance=this_distance,
-                split=current_splits[-1])
+                split=this_split)
             yield out_path, this_edge
 
             # Add the next edges to be explored from the end of this edge

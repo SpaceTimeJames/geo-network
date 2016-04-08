@@ -184,6 +184,7 @@ class LineSeg(object):
             return edge_node_dist
         return None
 
+
 class NetPoint(object):
 
     def __init__(self, street_net, edge, node_dist):
@@ -1035,6 +1036,8 @@ class StreetNet(object):
             raise AttributeError("Unrecognised method")
 
         graph = net_point_from.graph
+        assert self is graph, "From point is defined on a different network to this one"
+        assert self is net_point_to.graph, "To point is defined on a different network to this one"
 
         node_from_neg = net_point_from.edge.orientation_neg
         node_from_pos = net_point_from.edge.orientation_pos
@@ -1144,30 +1147,28 @@ class StreetNet(object):
     def path_directed(self, net_point_from, net_point_to, **kwargs):
 
         graph = net_point_from.graph
+        assert self is graph, "From point is defined on a different network to this one"
+        assert self is net_point_to.graph, "To point is defined on a different network to this one"
 
-        n1_1 = net_point_from.edge.orientation_neg
-        n2_1 = net_point_from.edge.orientation_pos
-        fid_1 = net_point_from.edge.fid
+        node_from0 = net_point_from.edge.orientation_neg
+        node_from1 = net_point_from.edge.orientation_pos
+        fid_from = net_point_from.edge.fid
 
-        n1_2 = net_point_to.edge.orientation_neg
-        n2_2 = net_point_to.edge.orientation_pos
-        fid_2 = net_point_to.edge.fid
+        node_to0 = net_point_to.edge.orientation_neg
+        node_to1 = net_point_to.edge.orientation_pos
+        fid_to = net_point_to.edge.fid
 
-        # n1_1,n2_1,fid_1=net_point1.edge
-        # n1_2,n2_2,fid_2=net_point2.edge
+        node_dist_from = net_point_from.node_dist
+        node_dist_to = net_point_to.node_dist
 
-        node_dist1=net_point_from.node_dist
-        node_dist2=net_point_to.node_dist
-
-        if fid_1==fid_2:
-
-            dist_diff = node_dist2[n1_1] - node_dist1[n1_1]
-
-            if dist_diff==0:
-
-                path_edges=[fid_1]
-                path_distances=[dist_diff]
-                path_nodes=[]
+        if fid_from == fid_to:
+            # points are on the same edge
+            dist_diff = node_dist_to[node_from0] - node_dist_from[node_from0]
+            path_edges = [net_point_from.edge]
+            if dist_diff == 0:
+                # path_edges = [fid_from]
+                path_distances = [dist_diff]
+                path_nodes = []
 
                 path = NetPath(
                     graph,
@@ -1176,26 +1177,20 @@ class StreetNet(object):
                     edges=path_edges,
                     distance=path_distances,
                     nodes=path_nodes)
-
             else:
-
-                #p1_node is the node for which p1 is the closer of the two points
-
-                if dist_diff>0:
-
-                    p1_node=n1_1
-                    p2_node=n2_1
-
+                # p1_node is the node closer to the FROM point
+                if dist_diff > 0:
+                    p1_node=node_from0
+                    p2_node=node_from1
                 else:
+                    p1_node=node_from1
+                    p2_node=node_from0
 
-                    p1_node=n2_1
-                    p2_node=n1_1
-
+                # is the route from p1 -> p2 permitted by the routing network?
                 if p2_node in self.g_routing[p1_node]:
-
-                    path_edges=[fid_1]
-                    path_distances=[node_dist2[p1_node]-node_dist1[p1_node]]
-                    path_nodes=[]
+                    # path_edges = [fid_from]
+                    path_distances = [math.fabs(dist_diff)]
+                    path_nodes = []
 
                     path = NetPath(
                         graph,
@@ -1204,32 +1199,44 @@ class StreetNet(object):
                         edges=path_edges,
                         distance=path_distances,
                         nodes=path_nodes)
-
                 else:
-
+                    # can't go directly from p1 -> p2 due to routing restrictions
+                    # find the shortest permissible route
+                    # distances: dict, keyed by target with net distance along the shortest path
+                    # paths: dict, keyed by target with lists of nodes traversed along shortest path
+                    distances, paths = nx.single_source_dijkstra(
+                        self.g_routing,
+                        p1_node,
+                        target=p2_node,
+                        weight='length'
+                    )
                     try:
-
-                        distances, paths = nx.single_source_dijkstra(self.g_routing,p1_node,target=p2_node,weight='length')
-
-                        node_path=paths[p2_node]
-
-                        path_edges=[fid_1]
-                        path_distances=[node_dist1[p1_node]]
+                        # the dijkstra algorithm doesn't reconstruct the path unambiguously, since it doesn't return the
+                        # edge ID between each node
+                        # so we have to reconstruct it manually, using the shortest edge each time
+                        node_path = paths[p2_node]
+                        # path_edges = [fid_from]
+                        # start by heading to the FROM node
+                        path_edges = [net_point_from.edge]
+                        path_distances=[node_dist_from[p1_node]]
                         path_nodes=[p1_node]
 
                         for j in xrange(len(node_path)-1):
 
-                            v=node_path[j]
-                            w=node_path[j+1]
+                            v = node_path[j]
+                            w = node_path[j+1]
 
-                            fid_shortest=min(self.g_routing[v][w],key=lambda x: self.g_routing[v][w][x]['length'])
+                            fid_shortest = min(self.g_routing[v][w], key=lambda x: self.g_routing[v][w][x]['length'])
 
-                            path_edges.append(fid_shortest)
-                            path_distances.append(self.g_routing[v][w][fid_shortest]['length'])
+                            # path_edges.append(fid_shortest)
+                            e = Edge(**self.g_routing[v][w][fid_shortest])
+                            path_edges.append(e)
+                            path_distances.append(e.length)
                             path_nodes.append(w)
 
-                        path_edges.append(fid_1)
-                        path_distances.append(node_dist2[p2_node])
+                        # path_edges.append(fid_from)
+                        path_edges.append(net_point_from.edge)
+                        path_distances.append(node_dist_to[p2_node])
 
                         path = NetPath(
                             graph,
@@ -1239,76 +1246,74 @@ class StreetNet(object):
                             distance=path_distances,
                             nodes=path_nodes)
 
-                    except:
+                    except KeyError:
 
                         path=None
-
-
         else:
-
+            # the two points are on different edges
             removed_edges1=[]
             removed_edges1_atts=[]
 
-            if n2_1 in self.g_routing[n1_1]:
-                if fid_1 in self.g_routing[n1_1][n2_1]:
+            if node_from1 in self.g_routing[node_from0]:
+                if fid_from in self.g_routing[node_from0][node_from1]:
 
-                    self.g_routing.add_edge(n1_1,'point1',key=fid_1,length=node_dist1[n1_1])
-                    self.g_routing.add_edge('point1',n2_1,key=fid_1,length=node_dist1[n2_1])
+                    self.g_routing.add_edge(node_from0,'point1',key=fid_from,length=node_dist_from[node_from0])
+                    self.g_routing.add_edge('point1',node_from1,key=fid_from,length=node_dist_from[node_from1])
 
-                    removed_edge1=(n1_1,n2_1,fid_1)
-                    removed_edge1_atts=self.g_routing[n1_1][n2_1][fid_1]
-
-                    removed_edges1.append(removed_edge1)
-                    removed_edges1_atts.append(removed_edge1_atts)
-
-                    self.g_routing.remove_edge(n1_1,n2_1,fid_1)
-
-            if n1_1 in self.g_routing[n2_1]:
-                if fid_1 in self.g_routing[n2_1][n1_1]:
-
-                    self.g_routing.add_edge(n2_1,'point1',key=fid_1,length=node_dist1[n2_1])
-                    self.g_routing.add_edge('point1',n1_1,key=fid_1,length=node_dist1[n1_1])
-
-                    removed_edge1=(n2_1,n1_1,fid_1)
-                    removed_edge1_atts=self.g_routing[n2_1][n1_1][fid_1]
+                    removed_edge1=(node_from0,node_from1,fid_from)
+                    removed_edge1_atts=self.g_routing[node_from0][node_from1][fid_from]
 
                     removed_edges1.append(removed_edge1)
                     removed_edges1_atts.append(removed_edge1_atts)
 
-                    self.g_routing.remove_edge(n2_1,n1_1,fid_1)
+                    self.g_routing.remove_edge(node_from0,node_from1,fid_from)
+
+            if node_from0 in self.g_routing[node_from1]:
+                if fid_from in self.g_routing[node_from1][node_from0]:
+
+                    self.g_routing.add_edge(node_from1,'point1',key=fid_from,length=node_dist_from[node_from1])
+                    self.g_routing.add_edge('point1',node_from0,key=fid_from,length=node_dist_from[node_from0])
+
+                    removed_edge1=(node_from1,node_from0,fid_from)
+                    removed_edge1_atts=self.g_routing[node_from1][node_from0][fid_from]
+
+                    removed_edges1.append(removed_edge1)
+                    removed_edges1_atts.append(removed_edge1_atts)
+
+                    self.g_routing.remove_edge(node_from1,node_from0,fid_from)
 
 
 
             removed_edges2=[]
             removed_edges2_atts=[]
 
-            if n2_2 in self.g_routing[n1_2]:
-                if fid_2 in self.g_routing[n1_2][n2_2]:
+            if node_to1 in self.g_routing[node_to0]:
+                if fid_to in self.g_routing[node_to0][node_to1]:
 
-                    self.g_routing.add_edge(n1_2,'point2',key=fid_2,length=node_dist2[n1_2])
-                    self.g_routing.add_edge('point2',n2_2,key=fid_2,length=node_dist2[n2_2])
+                    self.g_routing.add_edge(node_to0,'point2',key=fid_to,length=node_dist_to[node_to0])
+                    self.g_routing.add_edge('point2',node_to1,key=fid_to,length=node_dist_to[node_to1])
 
-                    removed_edge2=(n1_2,n2_2,fid_2)
-                    removed_edge2_atts=self.g_routing[n1_2][n2_2][fid_2]
-
-                    removed_edges2.append(removed_edge2)
-                    removed_edges2_atts.append(removed_edge2_atts)
-
-                    self.g_routing.remove_edge(n1_2,n2_2,fid_2)
-
-            if n1_2 in self.g_routing[n2_2]:
-                if fid_2 in self.g_routing[n2_2][n1_2]:
-
-                    self.g_routing.add_edge(n2_2,'point2',key=fid_2,length=node_dist2[n2_2])
-                    self.g_routing.add_edge('point2',n1_2,key=fid_2,length=node_dist2[n1_2])
-
-                    removed_edge2=(n2_2,n1_2,fid_2)
-                    removed_edge2_atts=self.g_routing[n2_2][n1_2][fid_2]
+                    removed_edge2=(node_to0,node_to1,fid_to)
+                    removed_edge2_atts=self.g_routing[node_to0][node_to1][fid_to]
 
                     removed_edges2.append(removed_edge2)
                     removed_edges2_atts.append(removed_edge2_atts)
 
-                    self.g_routing.remove_edge(n2_2,n1_2,fid_2)
+                    self.g_routing.remove_edge(node_to0,node_to1,fid_to)
+
+            if node_to0 in self.g_routing[node_to1]:
+                if fid_to in self.g_routing[node_to1][node_to0]:
+
+                    self.g_routing.add_edge(node_to1,'point2',key=fid_to,length=node_dist_to[node_to1])
+                    self.g_routing.add_edge('point2',node_to0,key=fid_to,length=node_dist_to[node_to0])
+
+                    removed_edge2=(node_to1,node_to0,fid_to)
+                    removed_edge2_atts=self.g_routing[node_to1][node_to0][fid_to]
+
+                    removed_edges2.append(removed_edge2)
+                    removed_edges2_atts.append(removed_edge2_atts)
+
+                    self.g_routing.remove_edge(node_to1,node_to0,fid_to)
 
 
             #Get the path between the new nodes
@@ -1397,7 +1402,6 @@ class StreetNet(object):
         '''
         Get all edges in the network.  Optionally return only those that intersect the provided bounding polygon (optionally with a buffer radius)
         '''
-
         if bounding_poly:
             if radius:
                 bounding_poly = bounding_poly.buffer(radius)
@@ -1406,6 +1410,46 @@ class StreetNet(object):
             # g.edges ==> function inherited from networkx
         else:
             return [Edge(self, **x[2]) for x in self.g.edges(data=True)]
+
+    def get_edge_by_id(self, edge_ids, skip_missing=False):
+        """
+        Get the edge corresponding to the supplied edge ID, providing a unique result is retrieved.
+        This is NOT EFFICIENT: it is preferable to get an edge by the full tuple (node0, node1, edge_id)
+        :param edge_ids: list of edge IDs or a single string with one ID
+        :param skip_missing: If True then missing edges are skipped, otherwise an error is raised
+        :return: A single Edge object if edge_ids is a string, otherwise a dictionary of Edge objects, keyed by edge_id.
+        """
+        b_return_one = False
+        if isinstance(edge_ids, str):
+            edge_ids = {edge_ids,}
+            b_return_one = True
+        else:
+            edge_ids = set(edge_ids)
+
+        if self.directed:
+            graph = self.g_routing
+        else:
+            graph = self.g
+
+        edge_gen = graph.edges_iter(data=True, keys=True)
+        res = {}
+
+        for e in edge_gen:
+            if e[2] in edge_ids:
+                if e[2] in res:
+                    raise KeyError("Edge IDs are not unique: multiple results found")
+                attr = e[-1]
+                res[e[2]] = Edge(self, **attr)
+
+        if not skip_missing:
+            for e in edge_ids:
+                if e not in res:
+                    raise KeyError("Unable to find edge %s", e)
+
+        if b_return_one:
+            return res.values()[0]
+        else:
+            return res
 
     ### ADDED BY GABS
     def nodes(self, bounding_poly=None):
