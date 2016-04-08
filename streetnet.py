@@ -1077,7 +1077,7 @@ class StreetNet(object):
             removed_edge1_atts = self.g[node_from_neg][node_from_pos][fid_from]
             self.g.remove_edge(node_from_neg, node_from_pos, fid_from)
 
-            #Insert a new 'to' node
+            # Insert a new 'to' node
             self.g.add_edge(node_to_neg, 'point2', key=fid_to, length=node_dist_to[node_to_neg])
             self.g.add_edge('point2', node_to_pos, key=fid_to, length=node_dist_to[node_to_pos])
 
@@ -1189,7 +1189,7 @@ class StreetNet(object):
                 # is the route from p1 -> p2 permitted by the routing network?
                 if p2_node in self.g_routing[p1_node]:
                     # path_edges = [fid_from]
-                    path_distances = [math.fabs(dist_diff)]
+                    path_distances = [abs(dist_diff)]
                     path_nodes = []
 
                     path = NetPath(

@@ -225,6 +225,74 @@ def network_linkages(data_source_net,
     return np.array(link_i), np.array(link_j), np.array(dt), np.array(dd)
 
 
+def modify_nx_graph_add_node_split_edge(nx_graph, netpt, label):
+    """
+    Alter the network by splitting the edge with ID edge_id connecting node0 and node1
+    Need to attempt the split in both directions, which allows support for MultiDiGraph in addition to
+    Multigraph (i.e. directed and undirected networks).
+    :param nx_graph:
+    :param net_pt: NetPoint
+    :param node0:
+    :param node1:
+    :param edge_id:
+    :return:
+    """
+    node0 = netpt.orientation_neg
+    node1 = netpt.orientation_pos
+    edge_id = netpt.fid
+
+    d0 = netpt.distance_negative
+    d1 = netpt.distance_positive
+
+    # keep track of removed edges
+    removed_edges_neg_pos = []
+    removed_edges_pos_neg = []
+
+    # start with neg -> pos direction
+    if node1 in nx_graph[node0] and edge_id in nx_graph[node0][node1]:
+        nx_graph.add_edge(node0, label, key=edge_id, length=d0)
+        nx_graph.add_edge(label, node1, key=edge_id, length=d1)
+
+        removed_edge1=(node_from0,node_from1,fid_from)
+        removed_edge1_atts=nx_graph[node_from0][node_from1][fid_from]
+
+        removed_edges1.append(removed_edge1)
+        removed_edges1_atts.append(removed_edge1_atts)
+
+        nx_graph.remove_edge(node_from0, node_from1, fid_from)
+
+    removed_edges1=[]
+    removed_edges1_atts=[]
+
+    if node_from1 in nx_graph[node_from0]:
+        if fid_from in nx_graph[node_from0][node_from1]:
+
+            nx_graph.add_edge(node_from0, 'point1', key=fid_from, length=node_dist_from[node_from0])
+            nx_graph.add_edge('point1', node_from1, key=fid_from, length=node_dist_from[node_from1])
+
+            removed_edge1=(node_from0,node_from1,fid_from)
+            removed_edge1_atts=nx_graph[node_from0][node_from1][fid_from]
+
+            removed_edges1.append(removed_edge1)
+            removed_edges1_atts.append(removed_edge1_atts)
+
+            nx_graph.remove_edge(node_from0, node_from1, fid_from)
+
+    if node_from0 in nx_graph[node_from1]:
+        if fid_from in nx_graph[node_from1][node_from0]:
+
+            nx_graph.add_edge(node_from1, 'point1', key=fid_from, length=node_dist_from[node_from1])
+            nx_graph.add_edge('point1', node_from0, key=fid_from, length=node_dist_from[node_from0])
+
+            removed_edge1=(node_from1,node_from0,fid_from)
+            removed_edge1_atts=nx_graph[node_from1][node_from0][fid_from]
+
+            removed_edges1.append(removed_edge1)
+            removed_edges1_atts.append(removed_edge1_atts)
+
+            nx_graph.remove_edge(node_from1, node_from0, fid_from)
+
+
 def shortest_path(nx_graph, net_point_from, net_point_to, length_only=False, method=None):
     ## TODO: add directional components too, since these are just another clause to skip when the path is undirected
     known_methods = (
@@ -236,9 +304,7 @@ def shortest_path(nx_graph, net_point_from, net_point_to, length_only=False, met
     if method not in known_methods:
         raise AttributeError("Unrecognised method")
 
-    graph = net_point_from.graph
-    assert nx_graph is graph, "From point is defined on a different network to this one"
-    assert nx_graph is net_point_to.graph, "To point is defined on a different network to this one"
+    assert net_point_from.graph is net_point_to.graph, "The points are defined on different graphs"
 
     node_from_neg = net_point_from.edge.orientation_neg
     node_from_pos = net_point_from.edge.orientation_pos
@@ -251,40 +317,118 @@ def shortest_path(nx_graph, net_point_from, net_point_to, length_only=False, met
     node_dist_from = net_point_from.node_dist
     node_dist_to = net_point_to.node_dist
 
-    if net_point_from.edge == net_point_to.edge:  # both points on same edge
-
+    if net_point_from.edge == net_point_to.edge:
+        # both points on same edge
         dist_diff = node_dist_to[node_from_neg] - node_dist_from[node_from_neg]
+        path_edges = [net_point_from.edge]
 
-        if length_only:
-            return abs(dist_diff)
+        if dist_diff == 0:
+            if length_only:
+                return dist_diff
+            path_distances = [dist_diff]
+            path_nodes = []
+            path = NetPath(
+                net_point_from.graph,
+                start=net_point_from,
+                end=net_point_to,
+                edges=path_edges,
+                distance=path_distances,
+                nodes=path_nodes
+            )
 
-        path_edges = [fid_from]
-        path_distances = [abs(dist_diff)]
-        path_nodes = []
-        path = NetPath(
-            graph,
-            start=net_point_from,
-            end=net_point_to,
-            edges=path_edges,
-            distance=path_distances,
-            nodes=path_nodes)
+        else:
+            # p1_node is the node closer to the FROM point
+            if dist_diff > 0:
+                p1_node=node_from_neg
+                p2_node=node_from_pos
+            else:
+                p1_node=node_from_pos
+                p2_node=node_from_neg
+
+            # is the route from p1 -> p2 permitted by the routing network?
+            if p2_node in nx_graph[p1_node]:
+                if length_only:
+                    return abs(dist_diff)
+                path_distances = [abs(dist_diff)]
+                path_nodes = []
+                path = NetPath(
+                    net_point_from.graph,
+                    start=net_point_from,
+                    end=net_point_to,
+                    edges=path_edges,
+                    distance=path_distances,
+                    nodes=path_nodes)
+            else:
+                # we only end up here when nx_graph is directed
+                # can't go directly from p1 -> p2 due to routing restrictions
+                # find the shortest permissible route
+
+                if method == 'single_source':
+                    # single_source_djikstra returns two dicts:
+                    # distances holds the shortest distance to each node en route from point1 to point2
+                    # paths holds the shortest partial path for each node en route from point1 to point2
+                    distances, paths = nx.single_source_dijkstra(nx_graph, p1_node, target=p2_node, weight='length')
+                    try:
+                        node_path = paths[p2_node]
+                        distance = distances[p2_node]
+                    except KeyError:
+                        # no valid path - raise same error as bidirectional method
+                        raise nx.NetworkXNoPath("No path between %s and %s.", p1_node, p2_node)
+                if method == 'bidirectional':
+                    # bidirectional_dijkstra returns a scalar length and a list of nodes
+                    distance, node_path = nx.bidirectional_dijkstra(nx_graph, p1_node, target=p2_node, weight='length')
+
+                # the path is FROM point -> p1_node -> net path -> p2_node -> TO point
+                d_from = node_dist_from[p1_node]
+                d_to = node_dist_to[p2_node]
+
+                if length_only:
+                    return d_from + distance + d_to
+
+                path_edges = [net_point_from.edge]
+                path_distances = [d_from]
+
+                for j in xrange(len(node_path)-1):
+
+                    v = node_path[j]
+                    w = node_path[j+1]
+
+                    fid_shortest = min(nx_graph[v][w], key=lambda x: nx_graph[v][w][x]['length'])
+                    e = Edge(**nx_graph[v][w][fid_shortest])
+                    path_edges.append(e)
+                    path_distances.append(e.length)
+
+                path_edges.append(net_point_from.edge)
+                path_distances.append(d_to)
+
+                path = NetPath(
+                    net_point_from.graph,
+                    start=net_point_from,
+                    end=net_point_to,
+                    edges=path_edges,
+                    distance=path_distances,
+                    nodes=node_path)
 
     else:
-        # Insert a new 'from' node
-        nx_graph.g.add_edge(node_from_neg, 'point1', key=fid_from, length=node_dist_from[node_from_neg])
-        nx_graph.g.add_edge('point1', node_from_pos, key=fid_from, length=node_dist_from[node_from_pos])
+        # the two points are on different edges
+        # in this case, we alter the underlying nx_graph temporarily to use the built-in methods
+        # the approach varies depending on the type of graph (directed or undirected)
+        # but the same code will work in both cases
+
+        nx_graph.add_edge(node_from_neg, 'point1', key=fid_from, length=node_dist_from[node_from_neg])
+        nx_graph.add_edge('point1', node_from_pos, key=fid_from, length=node_dist_from[node_from_pos])
 
         # store edge data before removal
-        removed_edge1_atts = nx_graph.g[node_from_neg][node_from_pos][fid_from]
-        nx_graph.g.remove_edge(node_from_neg, node_from_pos, fid_from)
+        removed_edge1_atts = nx_graph[node_from_neg][node_from_pos][fid_from]
+        nx_graph.remove_edge(node_from_neg, node_from_pos, fid_from)
 
         # Insert a new 'to' node
-        nx_graph.g.add_edge(node_to_neg, 'point2', key=fid_to, length=node_dist_to[node_to_neg])
-        nx_graph.g.add_edge('point2', node_to_pos, key=fid_to, length=node_dist_to[node_to_pos])
+        nx_graph.add_edge(node_to_neg, 'point2', key=fid_to, length=node_dist_to[node_to_neg])
+        nx_graph.add_edge('point2', node_to_pos, key=fid_to, length=node_dist_to[node_to_pos])
 
         # store edge data before removal
-        removed_edge2_atts = nx_graph.g[node_to_neg][node_to_pos][fid_to]
-        nx_graph.g.remove_edge(node_to_neg, node_to_pos, fid_to)
+        removed_edge2_atts = nx_graph[node_to_neg][node_to_pos][fid_to]
+        nx_graph.remove_edge(node_to_neg, node_to_pos, fid_to)
 
         # Get the path between the new nodes
         try:
@@ -293,13 +437,13 @@ def shortest_path(nx_graph, net_point_from, net_point_to, length_only=False, met
                 # distances holds the shortest distance to each node en route from point1 to point2
                 # paths holds the shortest partial path for each node en route from point1 to point2
 
-                distances, paths = nx.single_source_dijkstra(nx_graph.g, 'point1', target='point2', weight='length')
+                distances, paths = nx.single_source_dijkstra(nx_graph, 'point1', target='point2', weight='length')
                 node_path = paths['point2']
                 distance = distances['point2']
 
             if method == 'bidirectional':
                 # bidirectional_dijkstra returns a scalar length and a list of nodes
-                distance, node_path = nx.bidirectional_dijkstra(nx_graph.g, 'point1', target='point2', weight='length')
+                distance, node_path = nx.bidirectional_dijkstra(nx_graph, 'point1', target='point2', weight='length')
 
             # if we only need a distance, can quit here
             if length_only:
@@ -315,10 +459,10 @@ def shortest_path(nx_graph, net_point_from, net_point_to, length_only=False, met
                 v = node_path[j]
                 w = node_path[j + 1]
 
-                fid_shortest = min(nx_graph.g[v][w], key=lambda x: nx_graph.g[v][w][x]['length'])
+                fid_shortest = min(nx_graph[v][w], key=lambda x: nx_graph[v][w][x]['length'])
 
                 path_edges.append(fid_shortest)
-                path_distances.append(nx_graph.g[v][w][fid_shortest]['length'])
+                path_distances.append(nx_graph[v][w][fid_shortest]['length'])
 
             path = NetPath(
                 graph,
@@ -335,13 +479,234 @@ def shortest_path(nx_graph, net_point_from, net_point_to, length_only=False, met
         finally:
             # Restore the network to original state
             # This is run even after an early return, which is useful
-            nx_graph.g.remove_node('point1')
-            nx_graph.g.remove_node('point2')
+            nx_graph.remove_node('point1')
+            nx_graph.remove_node('point2')
 
-            nx_graph.g.add_edge(node_from_neg, node_from_pos, key=fid_from, attr_dict=removed_edge1_atts)
-            nx_graph.g.add_edge(node_to_neg, node_to_pos, key=fid_to, attr_dict=removed_edge2_atts)
+            nx_graph.add_edge(node_from_neg, node_from_pos, key=fid_from, attr_dict=removed_edge1_atts)
+            nx_graph.add_edge(node_to_neg, node_to_pos, key=fid_to, attr_dict=removed_edge2_atts)
 
     return path
+
+
+def path_directed(nx_graph, net_point_from, net_point_to, **kwargs):
+
+    graph = net_point_from.graph
+    assert nx_graph is graph, "From point is defined on a different network to this one"
+    assert nx_graph is net_point_to.graph, "To point is defined on a different network to this one"
+
+    node_from0 = net_point_from.edge.orientation_neg
+    node_from1 = net_point_from.edge.orientation_pos
+    fid_from = net_point_from.edge.fid
+
+    node_to0 = net_point_to.edge.orientation_neg
+    node_to1 = net_point_to.edge.orientation_pos
+    fid_to = net_point_to.edge.fid
+
+    node_dist_from = net_point_from.node_dist
+    node_dist_to = net_point_to.node_dist
+
+    if fid_from == fid_to:
+        # points are on the same edge
+        dist_diff = node_dist_to[node_from0] - node_dist_from[node_from0]
+        path_edges = [net_point_from.edge]
+        if dist_diff == 0:
+            # path_edges = [fid_from]
+            path_distances = [dist_diff]
+            path_nodes = []
+
+            path = NetPath(
+                graph,
+                start=net_point_from,
+                end=net_point_to,
+                edges=path_edges,
+                distance=path_distances,
+                nodes=path_nodes)
+        else:
+            # p1_node is the node closer to the FROM point
+            if dist_diff > 0:
+                p1_node=node_from0
+                p2_node=node_from1
+            else:
+                p1_node=node_from1
+                p2_node=node_from0
+
+            # is the route from p1 -> p2 permitted by the routing network?
+            if p2_node in nx_graph[p1_node]:
+                # path_edges = [fid_from]
+                path_distances = [abs(dist_diff)]
+                path_nodes = []
+
+                path = NetPath(
+                    graph,
+                    start=net_point_from,
+                    end=net_point_to,
+                    edges=path_edges,
+                    distance=path_distances,
+                    nodes=path_nodes)
+            else:
+                # can't go directly from p1 -> p2 due to routing restrictions
+                # find the shortest permissible route
+                # distances: dict, keyed by target with net distance along the shortest path
+                # paths: dict, keyed by target with lists of nodes traversed along shortest path
+                distances, paths = nx.single_source_dijkstra(
+                    nx_graph,
+                    p1_node,
+                    target=p2_node,
+                    weight='length'
+                )
+                try:
+                    # the dijkstra algorithm doesn't reconstruct the path unambiguously, since it doesn't return the
+                    # edge ID between each node
+                    # so we have to reconstruct it manually, using the shortest edge each time
+                    node_path = paths[p2_node]
+                    # path_edges = [fid_from]
+                    # start by heading to the FROM node
+                    path_edges = [net_point_from.edge]
+                    path_distances=[node_dist_from[p1_node]]
+                    path_nodes=[p1_node]
+
+                    for j in xrange(len(node_path)-1):
+
+                        v = node_path[j]
+                        w = node_path[j+1]
+
+                        fid_shortest = min(nx_graph[v][w], key=lambda x: nx_graph[v][w][x]['length'])
+
+                        # path_edges.append(fid_shortest)
+                        e = Edge(**nx_graph[v][w][fid_shortest])
+                        path_edges.append(e)
+                        path_distances.append(e.length)
+                        path_nodes.append(w)
+
+                    # path_edges.append(fid_from)
+                    path_edges.append(net_point_from.edge)
+                    path_distances.append(node_dist_to[p2_node])
+
+                    path = NetPath(
+                        graph,
+                        start=net_point_from,
+                        end=net_point_to,
+                        edges=path_edges,
+                        distance=path_distances,
+                        nodes=path_nodes)
+
+                except KeyError:
+
+                    path=None
+    else:
+        # the two points are on different edges
+        removed_edges1=[]
+        removed_edges1_atts=[]
+
+        if node_from1 in nx_graph[node_from0]:
+            if fid_from in nx_graph[node_from0][node_from1]:
+
+                nx_graph.add_edge(node_from0, 'point1', key=fid_from, length=node_dist_from[node_from0])
+                nx_graph.add_edge('point1', node_from1, key=fid_from, length=node_dist_from[node_from1])
+
+                removed_edge1=(node_from0,node_from1,fid_from)
+                removed_edge1_atts=nx_graph[node_from0][node_from1][fid_from]
+
+                removed_edges1.append(removed_edge1)
+                removed_edges1_atts.append(removed_edge1_atts)
+
+                nx_graph.remove_edge(node_from0, node_from1, fid_from)
+
+        if node_from0 in nx_graph[node_from1]:
+            if fid_from in nx_graph[node_from1][node_from0]:
+
+                nx_graph.add_edge(node_from1, 'point1', key=fid_from, length=node_dist_from[node_from1])
+                nx_graph.add_edge('point1', node_from0, key=fid_from, length=node_dist_from[node_from0])
+
+                removed_edge1=(node_from1,node_from0,fid_from)
+                removed_edge1_atts=nx_graph[node_from1][node_from0][fid_from]
+
+                removed_edges1.append(removed_edge1)
+                removed_edges1_atts.append(removed_edge1_atts)
+
+                nx_graph.remove_edge(node_from1, node_from0, fid_from)
+
+
+
+        removed_edges2=[]
+        removed_edges2_atts=[]
+
+        if node_to1 in nx_graph[node_to0]:
+            if fid_to in nx_graph[node_to0][node_to1]:
+
+                nx_graph.add_edge(node_to0, 'point2', key=fid_to, length=node_dist_to[node_to0])
+                nx_graph.add_edge('point2', node_to1, key=fid_to, length=node_dist_to[node_to1])
+
+                removed_edge2=(node_to0,node_to1,fid_to)
+                removed_edge2_atts=nx_graph[node_to0][node_to1][fid_to]
+
+                removed_edges2.append(removed_edge2)
+                removed_edges2_atts.append(removed_edge2_atts)
+
+                nx_graph.remove_edge(node_to0, node_to1, fid_to)
+
+        if node_to0 in nx_graph[node_to1]:
+            if fid_to in nx_graph[node_to1][node_to0]:
+
+                nx_graph.add_edge(node_to1, 'point2', key=fid_to, length=node_dist_to[node_to1])
+                nx_graph.add_edge('point2', node_to0, key=fid_to, length=node_dist_to[node_to0])
+
+                removed_edge2=(node_to1,node_to0,fid_to)
+                removed_edge2_atts=nx_graph[node_to1][node_to0][fid_to]
+
+                removed_edges2.append(removed_edge2)
+                removed_edges2_atts.append(removed_edge2_atts)
+
+                nx_graph.remove_edge(node_to1, node_to0, fid_to)
+
+
+        #Get the path between the new nodes
+        #TODO: CONSIDER BIDIRECTIONAL DIJKSTRA
+        try:
+
+            distances, paths = nx.single_source_dijkstra(nx_graph, 'point1', target='point2', weight='length')
+
+            node_path=paths['point2']
+
+            path_edges=[]
+            path_distances=[]
+            path_nodes=node_path[1:-1]
+
+            for j in xrange(len(node_path)-1):
+
+                v=node_path[j]
+                w=node_path[j+1]
+
+                fid_shortest=min(nx_graph[v][w], key=lambda x: nx_graph[v][w][x]['length'])
+
+                path_edges.append(fid_shortest)
+                path_distances.append(nx_graph[v][w][fid_shortest]['length'])
+
+            path = NetPath(
+                graph,
+                start=net_point_from,
+                end=net_point_to,
+                edges=path_edges,
+                distance=path_distances,
+                nodes=path_nodes)
+
+        except:
+
+            path = None
+
+
+        #Restore the network to original state
+        nx_graph.remove_node('point1')
+        nx_graph.remove_node('point2')
+
+        for (n1,n2,fid),removed_edge_atts in zip(removed_edges1,removed_edges1_atts):
+            nx_graph.add_edge(n1, n2, key=fid, attr_dict=removed_edge_atts)
+
+        for (n1,n2,fid),removed_edge_atts in zip(removed_edges2,removed_edges2_atts):
+            nx_graph.add_edge(n1, n2, key=fid, attr_dict=removed_edge_atts)
+
+    return path
+
 
 
 def get_next_node(edge, node):
