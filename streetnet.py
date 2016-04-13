@@ -342,52 +342,66 @@ class NetPoint(object):
 class NetPath(object):
 
     ## TODO: consider adding a linestring property - it would be a nice way to verify things
-
-    def __init__(self, net, start, end, nodes, distance, edges=None, split=None):
+    def __init__(self, net, nodes, distances, edges, splits=None):
         """
         Object encoding a route between two points on the network, either NetPoint or existing nodes
-        :param start: Start Node/NetPoint
-        :param end: Terminal Node/NetPoint
+        :param start: Start node/NetPoint
+        :param end: Terminal node/NetPoint
         :param nodes: List of the nodes traversed
         :param distance: Either an array of individual edge distances, or a float containing the total
-        :param edges: Optional array of Edge objects traversed
+        :param edges: Optional array of Edge objects traversed. This only includes edges FULLY traversed, so could be
+        an empty array
         :param splits: Optional, either an array of node splits or a float containing the product
         :return:
         """
-        self.start = start
-        self.end = end
+        # self.start = start
+        # self.end = end
+        if len(self.nodes) < 2:
+            raise AttributeError("Length of nodes array must be >= 2 (minimum of a start and end).")
         self.nodes = nodes
-
-        self._total_distance = None
-        self.distances = None
-        if hasattr(distance, '__iter__'):
-            self.distances = distance
-            self.distance_total = sum(distance)
-        else:
-            self.distance_total = distance
         self.edges = edges
-        self._splits = None
-        self._split_total = None
-        if split is not None:
-            if hasattr(split, '__iter__'):
-                self._splits = split
-                self._split_total = np.prod(split)
-            else:
-                self._split_total = split
+        self.distances = distances
 
-        if self.edges is not None and self.distances is not None and (len(self.distances) != len(edges)):
-            raise AttributeError('Path mismatch: distance list wrong length')
+        # calculated properties
+        self._distance_total = None
+        self._splits = None
+        self._splits_total = None
+
+        if splits is not None:
+            if hasattr(splits, '__iter__'):
+                self._splits = splits
+                self._splits_total = np.prod(splits)
+            else:
+                self._splits_total = splits
+
+        self.graph = net
+
+    def verify_data(self):
+        # verification checks
+        n_nodes_not_netpoint = len([n for n in self.nodes if not isinstance(n, NetPoint)])
+
+        if len(self.distances) - n_nodes_not_netpoint != len(self.edges):
+            raise AttributeError('Number of nodes, edges and distances do not match')
 
         if self.edges is not None and len(nodes) != len(edges) - 1:
             raise AttributeError('Path mismatch: node list wrong length')
 
-        # if self.start.graph is not self.end.graph:
-        #     raise AttributeError('Path mismatch: nodes are defined on different graphs')
+    @property
+    def start_node(self):
+        return self.nodes[0]
 
-        self.graph = net
+    @property
+    def end_node(self):
+        return self.nodes[-1]
 
     def __eq__(self, other):
         return self.__dict__ == other.__dict__
+
+    @property
+    def distance_total(self):
+        if self._distance_total is None:
+            self._distance_total = sum(self.distances)
+        return self._distance_total
 
     @property
     def splits(self):
@@ -397,9 +411,9 @@ class NetPath(object):
 
     @property
     def splits_total(self):
-        if self._split_total is None:
-            self._split_total = np.prod(self.splits)
-        return self._split_total
+        if self._splits_total is None:
+            self._splits_total = np.prod(self.splits)
+        return self._splits_total
 
     @property
     def length(self):
