@@ -263,12 +263,15 @@ def network_lines_with_shaded_scatter_points(sample_points,
         ax.set_xticks([])
         ax.set_yticks([])
 
-    xy = prediction_value_arr.to_cartesian()
+    net = sample_points.graph
+    plot_network_edge_lines(net.lines_iter(), line_buffer=line_buffer, ax=ax)
+
+    xy = sample_points.to_cartesian()
     # create circular patches
     p = []
     for i in range(xy.ndata):
-        p.append(patches.Circle(xy[i], radius=line_buffer, edgecolor=None))
-    coll = mcoll.PatchCollection(p)
+        p.append(patches.Circle(xy[i], radius=line_buffer, edgecolor='none'))
+    coll = mcoll.PatchCollection(p, match_original=True)
     coll.set_array(prediction_value_arr)
     coll.set_cmap(cmap)
     ax.add_collection(coll)
