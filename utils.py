@@ -41,6 +41,14 @@ def numpy_most_compact_int_dtype(arr):
     raise ValueError("Unable to find a suitable datatype")
 
 
+
+def linkage_func_separable(max_t, max_d):
+    def func(dt, dd):
+        return (dt <= max_t) & (dd <= max_d)
+    return func
+
+
+
 def pairwise_differences_indices(n):
 
     dtypes = [
@@ -79,9 +87,7 @@ def linkages(data_source,
              remove_coincident_pairs=False,
              time_gte_zero=True):
     """
-    Compute the indices of datapoints that are within the following tolerances:
-    interpoint distance less than max_d
-    time difference greater than zero, less than max_t
+    Compute the indices of datapoints that cause threshold_fun to return True
     The sign convention is (target - source).  Distances are euclidean.
     :param data_source: EuclideanSpaceTimeData array of source data.  Must be sorted by time ascending.
     :param threshold_fun: function that operates on the DataArray (delta_t, delta_d) returning True for linked points
