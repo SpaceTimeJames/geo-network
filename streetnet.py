@@ -4,13 +4,18 @@ from shapely.geometry import Point, LineString, Polygon, MultiLineString
 from shapely import geometry
 import networkx as nx
 import cPickle
-import scipy as sp
+from scipy import spatial
 import numpy as np
 from collections import defaultdict
 import bisect as bs
-import pysal as psl
 import copy
 import math
+
+try:
+    from rtree.index import Index
+    HAS_RTREE = True
+except ImportError:
+    HAS_RTREE = False
 
 try:
     import matplotlib.pyplot as plt
@@ -186,6 +191,7 @@ class LineSeg(object):
 
             return edge_node_dist
         return None
+
 
 class NetPoint(object):
 
@@ -410,12 +416,78 @@ class NetPath(object):
 
 class GridEdgeIndex(object):
 
-    def __init__(self, grid_length, x_grid, y_grid, edge_index):
+    def __init__(self, net, grid_length):
 
         self.grid_length = grid_length
-        self.x_grid = x_grid
-        self.y_grid = y_grid
-        self.edge_index = edge_index
+
+        self.x_grid = None
+        self.y_grid = None
+        self.edge_index = None
+
+    ## TODO: incorporate the following function into the constructor.
+
+
+
+def build_grid_edge_index(self, gridsize, extent=None):
+    '''
+    This is a helper function really, to be used in conjunction with snapping
+    operations. This might be a completely stupid way to do it, but as a naive
+    method it works OK.
+
+    The rationale is: suppose you want to snap a point to the closest edge -
+    then in the first instance you hav to go through every edge, calculate
+    the distance to it, then find the minimum. This is really inefficient because
+    some of those edges are miles away and each distance calculation is expensive.
+
+    The idea here is to lay a grid across the space and, for each cell of the
+    grid, take a note of which edges intersect with it. Then, as long as the grid
+    is suitably-sized, snapping a point is much cheaper - you find which cell
+    it lies in, and then you only need calculate the distance to the edges which
+    pass through any of the neighbouring cells - closest edge will always be in
+    one of those.
+
+    There *must* be a better way, but this works in the meantime.
+
+    This constructs the grid cells, then it constructs a dictionary edge-locator:
+    for each index pair (i,j), corresponding to the cells, it gives a list of
+    all edges which intersect that cell.
+
+    In fact, because it is just done by brute force, it doesn't check for intersection,
+    rather it adds every edge to all cells that it *might* intersect. Lazy, could
+    definitely be optimised, but still produces huge saving even like this.
+
+    The reason for pre-computing this is that it may be necessary to use it
+    many times as the argument to other functions.
+    '''
+    min_x, min_y, max_x, max_y = extent or self.extent
+
+    # Set up grids and arrays
+    x_grid = np.arange(min_x, max_x, gridsize)
+    y_grid = np.arange(min_y, max_y, gridsize)
+
+    # Initialise the lookup
+    edge_index = defaultdict(list)
+
+    # Loop edges
+    for n1, n2, fid, attr in self.g.edges(data=True, keys=True):
+
+        edge_line = attr['linestring']
+
+        # Get bounding box of polyline
+        (bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y) = edge_line.bounds
+
+        # Bin bbox extremities
+        bbox_min_x_loc = bs.bisect_left(x_grid, bbox_min_x)
+        bbox_max_x_loc = bs.bisect_left(x_grid, bbox_max_x)
+        bbox_min_y_loc = bs.bisect_left(y_grid, bbox_min_y)
+        bbox_max_y_loc = bs.bisect_left(y_grid, bbox_max_y)
+
+        # Go through every cell covered by this bbox, augmenting lookup
+        for i in range(bbox_min_x_loc, bbox_max_x_loc + 1):
+            for j in range(bbox_min_y_loc, bbox_max_y_loc + 1):
+                edge_index[(i, j)].append((n1, n2, fid))
+
+    return GridEdgeIndex(gridsize, x_grid, y_grid, edge_index)
 
 
 class StreetNet(object):
@@ -465,6 +537,7 @@ class StreetNet(object):
         self.directed = routing.lower() == 'directed'
         self.edge_index = None
         self.edge_coord_map = None
+        self.rtree_index = None
 
     @classmethod
     def from_data_structure(cls, data, srid=None):
@@ -628,14 +701,19 @@ class StreetNet(object):
         '''
         raise NotImplementedError()
 
-    def build_edge_index(self):
+    def build_edge_index(self, scale=None):
         '''
-        This builds a KD tree for all edge coordinates and a corresponding array that maps from edge coordinate to
-        the edge itself.
+        Construct a spatial index for the edges to enable quick spatial searches.
+        This is most useful when attempting to snap points to the network.
+        If the module rtree is available, this is used. Otherwise, a pure python grid-based index is used
         '''
-        self.edge_coord_map = np.cumsum([len(t.linestring.xy[0]) for t in self.edges()])
-        edge_coords = np.hstack([t.linestring.xy for t in self.edges()]).transpose()
-        self.edge_index = sp.spatial.KDTree(edge_coords)
+        if HAS_RTREE:
+            self.edge_index = Index()
+            for i, e in enumerate(self.edges()):
+                self.edge_index.insert(i, e.linestring.bounds, obj=(e.orientation_neg, e.orientation_pos, e.fid))
+        else:
+            ## TODO: construct grid-based index and assign
+            pass
 
     def shortest_edges_network(self):
         """
@@ -858,67 +936,6 @@ class StreetNet(object):
         # generate a new object from this multigraph
         return self.__class__.from_multigraph(g_new)
 
-    def build_grid_edge_index(self, gridsize, extent=None):
-        '''
-        This is a helper function really, to be used in conjunction with snapping
-        operations. This might be a completely stupid way to do it, but as a naive
-        method it works OK.
-
-        The rationale is: suppose you want to snap a point to the closest edge -
-        then in the first instance you hav to go through every edge, calculate
-        the distance to it, then find the minimum. This is really inefficient because
-        some of those edges are miles away and each distance calculation is expensive.
-
-        The idea here is to lay a grid across the space and, for each cell of the
-        grid, take a note of which edges intersect with it. Then, as long as the grid
-        is suitably-sized, snapping a point is much cheaper - you find which cell
-        it lies in, and then you only need calculate the distance to the edges which
-        pass through any of the neighbouring cells - closest edge will always be in
-        one of those.
-
-        There *must* be a better way, but this works in the meantime.
-
-        This constructs the grid cells, then it constructs a dictionary edge-locator:
-        for each index pair (i,j), corresponding to the cells, it gives a list of
-        all edges which intersect that cell.
-
-        In fact, because it is just done by brute force, it doesn't check for intersection,
-        rather it adds every edge to all cells that it *might* intersect. Lazy, could
-        definitely be optimised, but still produces huge saving even like this.
-
-        The reason for pre-computing this is that it may be necessary to use it
-        many times as the argument to other functions.
-        '''
-        min_x, min_y, max_x, max_y = extent or self.extent
-
-        #Set up grids and arrays
-        x_grid=sp.arange(min_x,max_x,gridsize)
-        y_grid=sp.arange(min_y,max_y,gridsize)
-
-        #Initialise the lookup
-        edge_index=defaultdict(list)
-
-        #Loop edges
-        for n1, n2, fid, attr in self.g.edges(data=True, keys=True):
-
-            edge_line = attr['linestring']
-
-            #Get bounding box of polyline
-            (bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y) = edge_line.bounds
-
-            #Bin bbox extremities
-            bbox_min_x_loc = bs.bisect_left(x_grid, bbox_min_x)
-            bbox_max_x_loc = bs.bisect_left(x_grid, bbox_max_x)
-            bbox_min_y_loc = bs.bisect_left(y_grid, bbox_min_y)
-            bbox_max_y_loc = bs.bisect_left(y_grid, bbox_max_y)
-
-            #Go through every cell covered by this bbox, augmenting lookup
-            for i in range(bbox_min_x_loc,bbox_max_x_loc+1):
-                for j in range(bbox_min_y_loc,bbox_max_y_loc+1):
-                    edge_index[(i,j)].append((n1,n2,fid))
-
-        return GridEdgeIndex(gridsize, x_grid, y_grid, edge_index)
-
     def snap_point(self, x, y, max_distance=None):
         '''
         Snap a single point to the network, subject to an optional maximum snapping distance
@@ -927,6 +944,7 @@ class StreetNet(object):
         :param max_distance: If None, this will be taken as infinite
         :return: Tuple (NetPoint, snapping distance) or (None, None) if no snapping can be carried out
         '''
+        from bisect import bisect_left
         if max_distance is None:
             max_distance = np.inf
         if self.edge_index is None:
@@ -935,8 +953,49 @@ class StreetNet(object):
         dist, cidx = self.edge_index.query((x, y), distance_upper_bound=max_distance)
         if np.isinf(dist):
             return None, None
+        idx = bisect_left(self.edge_coord_map, cidx)
+        edge = self.edges()[idx]
+        ls = edge.linestring
+        pt = Point(x, y)
+        dist = pt.distance(ls)
+        dist_neg = ls.project(pt)
+        dist_pos = edge.length - dist_neg
+        node_dist = {
+            edge.orientation_neg: dist_neg,
+            edge.orientation_pos: dist_pos
+        }
+        return NetPoint(self, edge, node_dist), dist
 
-
+    def snap_point_rtree(self, x, y, max_distance):
+        if self.rtree_index is None:
+            self.build_rtree_index()
+        bbox = (x - max_distance, y - max_distance, x + max_distance, y + max_distance)
+        search_list = list(self.rtree_index.intersection(bbox, objects='raw'))
+        if not len(search_list):
+            return
+        pt = Point(x, y)
+        dists = [
+            pt.distance(self.edge[node0][node1][edge_id]['linestring']) for node0, node1, edge_id in search_list
+        ]
+        the_idx = np.argmin(dists)
+        node0, node1, edge_id = search_list[the_idx]
+        edge = Edge(
+            self,
+            orientation_neg=node0,
+            orientation_pos=node1,
+            fid=edge_id
+        )
+        ls = edge.linestring
+        dist = ls.distance(pt)
+        if dist > max_distance:
+            return
+        dist_neg = ls.project(Point(x, y))
+        dist_pos = edge.length - dist_neg
+        node_dist = {
+            edge.orientation_neg: dist_neg,
+            edge.orientation_pos: dist_pos
+        }
+        return NetPoint(self, edge, node_dist), dist
 
     def closest_edges_euclidean(self, x, y, grid_edge_index=None, radius=50, max_edges=1):
         '''
