@@ -50,9 +50,11 @@ def gml_to_node_edge_list(infile, outfile=None, routing=False, write_to_disk=Tru
         'edge_length',
     )
 
-    with open(outfile, 'wb') as f:
-        c = csv.writer(f)
-        c.writerow(fields)
-        c.writerows(out_data)
+    if write_to_disk:
+        with open(outfile, 'wb') as f:
+            c = csv.writer(f)
+            c.writerow(fields)
+            c.writerows(out_data)
+        print "Saved CSV to %s" % outfile
 
     return out_data
