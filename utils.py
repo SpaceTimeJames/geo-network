@@ -132,13 +132,105 @@ def linkages(data_source,
     return np.array(link_i), np.array(link_j)
 
 
+def compute_threshold_mask(target, source):
+    dt = (target.time - source.time)
+    dd = (target.space.distance(source.space))
+    mask = (dt <= 900) & (dd <= 125)
+    return mask.toarray(0)
+
+
+def linkages_parallel(data_source,
+                      threshold_fun,
+                      data_target=None,
+                      chunksize=2**18,
+                      remove_coincident_pairs=False,
+                      time_gte_zero=True):
+    """
+    IF NOTHING ELSE, THIS HAS TAUGHT US THAT THE ARRAY SPLITTING COULD BE DONE MUCH MORE EFFICIENTLY!
+    - arr.flat[lookup] is ~5x slower than arr[lookup] (if arr is 1D anyway)
+    - np.array_split() is 40x faster than indexing.
+
+    """
+    import multiprocessing as mp
+    from time import time
+    ndata_source = data_source.ndata
+    tic = time()
+    if data_target is not None:
+        ndata_target = data_target.ndata
+        chunksize = min(chunksize, ndata_source * ndata_target)
+        idx_i, idx_j = np.meshgrid(range(ndata_source), range(ndata_target), copy=False)
+        idx_i = idx_i.flatten()
+        idx_j = idx_j.flatten()
+    else:
+        # self-linkage
+        data_target = data_source
+        chunksize = min(chunksize, ndata_source * (ndata_source - 1) / 2)
+        idx_i, idx_j = pairwise_differences_indices(ndata_source)
+
+    print "(1): %.3f" % (time() - tic)
+
+    tic = time()
+    # pool = mp.Pool()
+    print "(1.5): %.3f" % (time() - tic)
+    tic = time()
+    jobs = []
+
+    link_i = []
+    link_j = []
+    fake_target = data_target.getrows(range(5))
+    fake_source = data_target.getrows(range(5))
+
+    class FakeTask(object):
+        def get(self, x):
+            return [True, False, True]
+
+    ij = np.vstack((idx_i, idx_j)).transpose()
+    ts = np.dstack((data_source.data, data_source.data))
+
+    try:
+        for y in np.array_split(ts, 1000):
+            target = y[..., 0]
+            source = y[..., 1]
+        # for k in xrange(0, idx_i.size, chunksize):
+        #     i = idx_i[k:(k + chunksize)]
+        #     j = idx_j[k:(k + chunksize)]
+        #     target = data_target.getrows(j)
+        #     source = data_source.getrows(i)
+            # task = pool.apply_async(compute_threshold_mask, args=(fake_target, fake_source))
+            # task = FakeTask()
+            # jobs.append((None, k))
+
+        print "(2): %.3f" % (time() - tic)
+        tic = time()
+
+        # for task, k in jobs:
+        #     mask = task.get(1e10)  # variable is the timeout: essentially infinite
+            # i = idx_i.flat[k:(k + chunksize)]
+            # j = idx_j.flat[k:(k + chunksize)]
+            # link_i.extend(i[mask])
+            # link_j.extend(j[mask])
+        print "(3): %.3f" % (time() - tic)
+
+    except Exception as exc:
+        print repr(exc)
+        raise
+
+    finally:
+        tic = time()
+        # pool.close()
+        print "(4): %.3f" % (time() - tic)
+
+    return np.array(link_i), np.array(link_j)
+
+
 def network_linkages(data_source_net,
                      linkage_fun,
                      data_source_txy=None,
                      data_target_net=None,
                      data_target_txy=None,
                      chunksize=2**18,
-                     remove_coincident_pairs=False):
+                     remove_coincident_pairs=False,
+                     time_gte_zero=True):
     """
     Compute the indices of datapoints that are within the following tolerances:
     interpoint distance less than max_d
@@ -192,7 +284,8 @@ def network_linkages(data_source_net,
         linkage_fun,
         data_target=data_target_txy,
         chunksize=chunksize,
-        remove_coincident_pairs=remove_coincident_pairs)
+        remove_coincident_pairs=remove_coincident_pairs,
+        time_gte_zero=time_gte_zero)
 
     print "Eliminated %d / %d links by quick Euclidean scan (%.1f %%)" % (
         n_pair - idx_i.size,
