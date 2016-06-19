@@ -1,19 +1,18 @@
-from network.utils import network_point_coverage
-
 __author__ = 'gabriel'
-from network import TEST_DATA_FILE
-from network.itn import read_gml, ITNStreetNet
-from network.streetnet import NetPath, NetPoint, Edge, GridEdgeIndex
-from data import models
+from itn import read_gml, ITNStreetNet
+from streetnet import NetPath, Edge
+import utils
+from point import NetPoint, NetPointArray, NetTimePointArray
 import os
 import unittest
-import settings
 import numpy as np
 from matplotlib import pyplot as plt
-from network import utils
 from validation import hotspot, roc
 import networkx as nx
 from shapely.geometry import LineString
+
+this_dir = os.path.dirname(os.path.realpath(__file__))
+TEST_DATA_FILE = os.path.join(this_dir, 'test_data/mastermap-itn_417209_0_brixton_sample.gml')
 
 
 def load_test_network():
@@ -118,14 +117,13 @@ def toy_network(loop=False):
     return net
 
 
-class TestNetworkData(unittest.TestCase):
+class TestNetPoint(unittest.TestCase):
 
     def setUp(self):
         # this_dir = os.path.dirname(os.path.realpath(__file__))
         # IN_FILE = os.path.join(this_dir, 'test_data', 'mastermap-itn_417209_0_brixton_sample.gml')
 
         self.test_data = read_gml(TEST_DATA_FILE)
-
         self.itn_net = ITNStreetNet.from_data_structure(self.test_data)
 
     def test_grid_index(self):
@@ -172,9 +170,6 @@ class TestNetworkData(unittest.TestCase):
         for i in range(len(net_points)):
             self.assertEqual((net_points[i] - net_points[i]).length, 0.)
 
-        net_point_array = models.NetworkData(net_points)
-
-        self.assertFalse(np.any(net_point_array.distance(net_point_array).data.sum()))
 
     def test_snapping_brute_force(self):
         # lay down some known points
@@ -296,6 +291,101 @@ class TestUtils(unittest.TestCase):
 
 
 
+class TestNetPointArray(unittest.TestCase):
+    def setUp(self):
+        self.net = toy_network()
+
+    def test_netpointarray(self):
+        xy = [
+            (2.5, 1.2),
+            (4.9, 0.7),
+            (2.5, -1.2),
+            (-0.05, 0.),
+        ]
+
+        # error if points are defined on different graphs
+        new_net = toy_network()
+        pt = NetPoint.from_cartesian(self.net, xy[0][0], xy[0][1])
+        new_pt = NetPoint.from_cartesian(new_net, xy[0][0], xy[0][1])
+        with self.assertRaises(AttributeError):
+            NetPointArray([pt, new_pt])
+
+        # construct and test max snapping distance
+        na, fail_idx = NetPointArray.from_cartesian(self.net, xy, max_snap_distance=0.15, return_failure_idx=True)
+        self.assertEqual(na.ndata, 2)
+        self.assertEqual(set(fail_idx), {0, 2})
+
+        na, fail_idx = NetPointArray.from_cartesian(self.net, xy, max_snap_distance=0.05, return_failure_idx=True)
+        self.assertEqual(na.ndata, 1)
+        self.assertEqual(set(fail_idx), {0, 1, 2})
+
+        # now allow unlimited distance snaps
+        na = NetPointArray.from_cartesian(self.net, xy)
+        self.assertEqual(na.ndata, len(xy))
+
+        # these points are translated but after snapping will be the same
+        xy2 = [
+            (2.5, 1.3),
+            (4.95, 0.7),
+            (2.5, -1.4),
+            (-0.15, 0.),
+        ]
+        na2 = NetPointArray.from_cartesian(self.net, xy2)
+        ed = na.euclidean_distance(na2)
+        self.assertTrue(np.all(ed == 0))
+
+        xy2[0] = (2.5, 0.)
+        na2 = NetPointArray.from_cartesian(self.net, xy2)
+        ed = na.euclidean_distance(na2)
+        self.assertAlmostEqual(ed[0], 1., places=2)
+
+        # network distance - the expected value here is 1/4 of the ellipse circumference + half the straight line
+        nd = na.distance(na2)
+        expctd = 11.50656 / 4 + 2.5
+        self.assertAlmostEqual(nd[0], expctd, places=2)
+
+        # subtraction results in NetPath objects
+        a = na - na2
+        self.assertIsInstance(a[0], NetPath)
+
+    def test_nettimepointarray(self):
+        # construct
+        xy = [
+            (2.5, 1.2),
+            (4.9, 0.7),
+            (2.5, -1.2),
+            (-0.05, 0.),
+        ]
+        t = [
+            1.,
+            2.,
+            3.,
+            4.
+        ]
+        na = NetPointArray.from_cartesian(self.net, xy)
+        # error if space and time dims don't match
+        with self.assertRaises(AttributeError):
+            nt = NetTimePointArray([1., 2., 3.], na)
+        # can create with an array of NetPoints...
+        nt = NetTimePointArray(t, na.arr)
+        # ... or a NetPointArray
+        nt = NetTimePointArray(t, na)
+
+        # same location, different time
+        t2 = [1.1, 2.2, 3.3, 4.4]
+        nt2 = NetTimePointArray(t2, na)
+
+        # subtraction
+        a = nt2 - nt
+        self.assertIsInstance(a[0, 1], NetPath)
+        for i, b in enumerate(a[:, 0]):
+            self.assertAlmostEqual(b, t2[i] - t[i])
+
+
+pass
+
+
+
 if __name__ == "__main__":
     b_plot = False
 
@@ -333,9 +423,9 @@ if __name__ == "__main__":
     # method A: do it in two steps...
 
     # A1: push them into a single data array for easier operation
-    xy = models.DataArray.from_args(x_pts, y_pts)
+    xy = np.vstack((x_pts, y_pts)).transpose()
     # A2: use the class method from_cartesian,
-    net_point_array_a = models.NetworkData.from_cartesian(itn_net, xy, grid_size=50)  # grid_size defaults to 50
+    net_point_array_a = NetPointArray.from_cartesian(itn_net, xy)  # grid_size defaults to 50
 
     # method B: do it manually, just to check
     # also going to take this opportunity to test a minor problem with closest_edges_euclidean
@@ -356,7 +446,7 @@ if __name__ == "__main__":
         net_points.append(tmp[0])
         snap_dists.append(tmp[1])
 
-    net_point_array_b = models.NetworkData(net_points)
+    net_point_array_b = NetPointArray(net_points)
 
     # check these are the same
 
@@ -437,7 +527,7 @@ if __name__ == "__main__":
             plt.colorbar()
 
     # get a roughly even coverage of points across the network
-    net_points, edge_count = network_point_coverage(itn_net, dx=10)
+    net_points, edge_count = utils.network_point_coverage(itn_net, dx=10)
     xy_points = net_points.to_cartesian()
     c_edge_count = np.cumsum(edge_count)
 

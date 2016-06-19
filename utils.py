@@ -2,7 +2,8 @@ __author__ = 'gabriel'
 import numpy as np
 from data.models import CartesianSpaceTimeData, NetworkData, CartesianData
 import logging
-from streetnet import NetPoint, Edge, NetPath
+from streetnet import Edge, NetPath
+from point import NetPoint
 from collections import OrderedDict, defaultdict
 import operator
 

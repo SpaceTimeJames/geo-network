@@ -8,9 +8,11 @@ import scipy as sp
 import numpy as np
 from collections import defaultdict
 import bisect as bs
-import pysal as psl
-import copy
 import math
+
+from point import NetPoint
+from path import NetPath
+
 
 try:
     import matplotlib.pyplot as plt
@@ -22,6 +24,60 @@ try:
     MPL = True
 except ImportError:
     MPL = False
+
+
+class LineSeg(object):
+    def __init__(self, node_neg_coords, node_pos_coords, edge=None, street_net=None):
+        """
+        A class for representing individual line segments.
+        :param street_net:  A pointer to the network on which this segment is defined.
+        :param edge: Edge that the segment belongs to.
+        """
+        self.graph = street_net
+        self.edge = edge
+        self.node_neg_coords = node_neg_coords
+        self.node_pos_coords = node_pos_coords
+
+    @property
+    def bearing(self):
+        """
+        The angle to the horizontal in degrees
+        """
+        return math.degrees(math.atan2(self.node_pos_coords[0] - self.node_neg_coords[0],
+                                       self.node_pos_coords[1] - self.node_neg_coords[1])) % 360
+
+    @property
+    def linestring(self):
+        return LineString(zip(np.array([self.node_neg_coords[0],self.node_pos_coords[0]]),np.array([self.node_neg_coords[1],self.node_pos_coords[1]])))
+
+    @property
+    def length(self):
+        return math.sqrt(
+            (self.node_pos_coords[0] - self.node_neg_coords[0])**2 + (self.node_pos_coords[1] - self.node_neg_coords[1])**2
+        )
+
+    @property
+    def distance_to_edge_nodes(self):
+        if self.edge is not None:
+            # TODO: can we just use the coordinates directly rather than the linestring?
+            start = self.edge.linestring.xy[0].index(self.linestring.xy[0][0])
+            end = self.edge.linestring.xy[0].index(self.linestring.xy[0][1])
+            # try:
+            if start != 0:
+                d_start = LineString([(self.edge.linestring.xy[0][i],self.edge.linestring.xy[1][i]) for i in range(start+1)]).length
+            else:
+                d_start = 0
+            if end != (len(self.edge.linestring.xy[0])-1):
+                d_end = LineString([(self.edge.linestring.xy[0][i],self.edge.linestring.xy[1][i]) for i in range(end,len(self.edge.linestring.xy[0]))]).length
+            else:
+                d_end = 0
+
+            edge_node_dist = {}
+            edge_node_dist[self.edge.orientation_neg] = d_start
+            edge_node_dist[self.edge.orientation_pos] = d_end
+
+            return edge_node_dist
+        return None
 
 
 class Edge(object):
@@ -136,276 +192,6 @@ class Edge(object):
         Apparently, in the case of clashing hash keys, equality is checked anyway?
         """
         return hash((self.orientation_neg, self.orientation_pos, self.fid))
-
-# ADDED BY KK
-class LineSeg(object):
-    def __init__(self, node_neg_coords, node_pos_coords, edge=None, street_net=None):
-        """
-        A class for representing individual line segments.
-        :param street_net:  A pointer to the network on which this segment is defined.
-        :param edge: Edge that the segment belongs to.
-        :param orientation_neg: start point (Shapely point object)
-        :param orientation_pos: end point
-        """
-        self.graph = street_net
-        self.edge = edge
-        self.node_neg_coords = node_neg_coords
-        self.node_pos_coords = node_pos_coords
-
-    @property
-    def bearing(self):
-        return math.degrees(math.atan2(self.node_pos_coords[0] - self.node_neg_coords[0],
-                                       self.node_pos_coords[1] - self.node_neg_coords[1])) % 360
-
-    @property
-    def linestring(self):
-        return LineString(zip(np.array([self.node_neg_coords[0],self.node_pos_coords[0]]),np.array([self.node_neg_coords[1],self.node_pos_coords[1]])))
-
-    @property
-    def length(self):
-        return np.sqrt((self.node_pos_coords[0] - self.node_neg_coords[0])**2 + (self.node_pos_coords[1] - self.node_neg_coords[1])**2)
-
-    @property
-    def distance_to_edge_nodes(self):
-        if self.edge is not None:
-            start = self.edge.linestring.xy[0].index(self.linestring.xy[0][0])
-            end = self.edge.linestring.xy[0].index(self.linestring.xy[0][1])
-            # try:
-            if start != 0:
-                d_start = LineString([(self.edge.linestring.xy[0][i],self.edge.linestring.xy[1][i]) for i in range(start+1)]).length
-            else:
-                d_start = 0
-            if end != (len(self.edge.linestring.xy[0])-1):
-                d_end = LineString([(self.edge.linestring.xy[0][i],self.edge.linestring.xy[1][i]) for i in range(end,len(self.edge.linestring.xy[0]))]).length
-            else:
-                d_end = 0
-
-            edge_node_dist = {}
-            edge_node_dist[self.edge.orientation_neg] = d_start
-            edge_node_dist[self.edge.orientation_pos] = d_end
-
-            return edge_node_dist
-        return None
-
-class NetPoint(object):
-
-    def __init__(self, street_net, edge, node_dist):
-        """
-        :param street_net: A pointer to the network on which this point is defined
-        :param edge: An Edge object
-        :param node_dist: A dictionary containing the distance along this edge from both the positive and negative end
-        The key gives the node ID, the value gives the distance from that end.
-        """
-        self.graph = street_net
-        self.edge = edge
-        # check node_dist
-        assert len(node_dist) in (1, 2), "node_dist must have one or two entries"
-        if len(node_dist) == 2:
-            assert {edge.orientation_pos, edge.orientation_neg} == set(node_dist.keys()), \
-                "node_dist keys do not match the edge nodes"
-        else:
-            # fill in other node_dist
-            if node_dist.keys()[0] == edge.orientation_neg:
-                node_dist[edge.orientation_pos] = self.edge.length - node_dist.values()[0]
-            elif node_dist.keys()[0] == edge.orientation_pos:
-                node_dist[edge.orientation_neg] = self.edge.length - node_dist.values()[0]
-            else:
-                raise AssertionError("The entry in node_dist does not match either of the edge nodes")
-        self.node_dist = node_dist
-
-    @classmethod
-    def from_cartesian(cls, street_net, x, y, grid_edge_index=None, radius=None):
-        """
-        Convert from Cartesian coordinates to a NetPoint
-        :param street_net: The governing network
-        :param x:
-        :param y:
-        :param grid_edge_index: Optionally supply a pre-defined grid index, which allows for fast searching
-        :param radius: Optional maximum search radius. If no edges are found within this radius, the point is not snapped.
-        :return: NetPoint or None (if snapping fails)
-        """
-        if grid_edge_index is not None:
-            return street_net.closest_edges_euclidean(x, y,
-                                                      grid_edge_index=grid_edge_index,
-                                                      radius=radius)[0]
-        else:
-            res = street_net.closest_edges_euclidean_brute_force(x, y, radius=radius)
-            if res is not None:
-                return res[0]
-            else:
-                return
-
-    @property
-    def distance_positive(self):
-        """ Distance from the POSITIVE node """
-        return self.node_dist[self.edge.orientation_pos]
-
-    @property
-    def distance_negative(self):
-        """ Distance from the NEGATIVE node """
-        return self.node_dist[self.edge.orientation_neg]
-
-    @property
-    def cartesian_coords(self):
-        ls = self.edge['linestring']
-        pt = ls.interpolate(self.node_dist[self.edge.orientation_neg])
-        return pt.x, pt.y
-
-    def test_compatible(self, other):
-        if not self.graph is other.graph:
-            raise AttributeError("The two points are defined on different graphs")
-
-    def __eq__(self, other):
-        if not isinstance(other, self.__class__):
-            return False
-        # don't use test_compatible here because we want such an operation to return False, not raise an exception
-        return (
-            self.graph is other.graph and
-            self.edge == other.edge and
-            self.node_dist == other.node_dist
-        )
-
-    def __sub__(self, other):
-        # NetPoint - NetPoint -> NetPath
-        self.test_compatible(other)
-        if self.graph.directed:
-            return self.graph.path_directed(self, other)
-        else:
-            return self.graph.path_undirected(self, other)
-
-    def distance(self, other, method=None):
-        """
-        NetPoint.distance(NetPoint) -> scalar distance
-        :param method: optionally specify the algorithm used to compute distance.
-        """
-        if self.graph.directed:
-            # TODO: update the path_directed method to accept length_only kwarg
-            # return self.graph.path_directed(self, other, length_only=True, method=method)
-            return (self - other).length
-        else:
-            return self.graph.path_undirected(self, other, length_only=True, method=method)
-
-
-    def euclidean_distance(self, other):
-        # compute the Euclidean distance between two NetPoints
-        delta = np.array(self.cartesian_coords) - np.array(other.cartesian_coords)
-        return sum(delta ** 2) ** 0.5
-
-    def linestring(self, node):
-        """ Partial edge linestring from/to the specified node. Direction is always neg to pos. """
-        if node == self.edge.orientation_neg:
-            return self.linestring_negative
-        elif node == self.edge.orientation_pos:
-            return self.linestring_positive
-        else:
-            raise AttributeError("Specified node is not one of the terminal edge nodes")
-
-    @property
-    def linestring_positive(self):
-        """ Partial edge linestring from point to positive node """
-        # get point coord using interp
-        x, y = self.edge.linestring.xy
-        d = np.concatenate(([0], np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2).cumsum()))
-        i = bs.bisect_left(d, self.distance_negative)
-        xp = np.interp(self.distance_negative, d, x)
-        yp = np.interp(self.distance_negative, d, y)
-        x = np.concatenate(([xp], x[i:]))
-        y = np.concatenate(([yp], y[i:]))
-        return LineString(zip(x, y))
-
-    @property
-    def linestring_negative(self):
-        """ Partial edge linestring from negative node to point """
-        # get point coord using interp
-        x, y = self.edge.linestring.xy
-        d = np.concatenate(([0], np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2).cumsum()))
-        i = bs.bisect_left(d, self.distance_negative)
-        xp = np.interp(self.distance_negative, d, x)
-        yp = np.interp(self.distance_negative, d, y)
-        x = np.concatenate((x[:i], [xp]))
-        y = np.concatenate((y[:i], [yp]))
-        return LineString(zip(x, y))
-
-    ## ADDED BY KK
-    @property
-    def lineseg(self):
-        """
-        Line segment on which the point lies from negative node to positive node.
-        """
-        x, y = self.edge.linestring.xy
-        d = np.concatenate(([0], np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2).cumsum()))
-        i = bs.bisect_left(d, self.distance_negative)
-        x = x[(i - 1):(i + 1)]
-        y = y[(i - 1):(i + 1)]
-        return LineSeg(node_neg_coords=(x[0], y[0]), node_pos_coords=(x[1], y[1]), edge=self.edge,
-                       street_net=self.graph)
-
-
-class NetPath(object):
-
-    ## TODO: consider adding a linestring property - it would be a nice way to verify things
-
-    def __init__(self, net, start, end, nodes, distance, edges=None, split=None):
-        """
-        Object encoding a route between two points on the network, either NetPoint or existing nodes
-        :param start: Start Node/NetPoint
-        :param end: Terminal Node/NetPoint
-        :param nodes: List of the nodes traversed
-        :param distance: Either an array of individual edge distances, or a float containing the total
-        :param edges: Optional array of Edge objects traversed
-        :param splits: Optional, either an array of node splits or a float containing the product
-        :return:
-        """
-        self.start = start
-        self.end = end
-        self.nodes = nodes
-
-        self._total_distance = None
-        self.distances = None
-        if hasattr(distance, '__iter__'):
-            self.distances = distance
-            self.distance_total = sum(distance)
-        else:
-            self.distance_total = distance
-        self.edges = edges
-        self._splits = None
-        self._split_total = None
-        if split is not None:
-            if hasattr(split, '__iter__'):
-                self._splits = split
-                self._split_total = np.prod(split)
-            else:
-                self._split_total = split
-
-        if self.edges is not None and self.distances is not None and (len(self.distances) != len(edges)):
-            raise AttributeError('Path mismatch: distance list wrong length')
-
-        if self.edges is not None and len(nodes) != len(edges) - 1:
-            raise AttributeError('Path mismatch: node list wrong length')
-
-        # if self.start.graph is not self.end.graph:
-        #     raise AttributeError('Path mismatch: nodes are defined on different graphs')
-
-        self.graph = net
-
-    def __eq__(self, other):
-        return self.__dict__ == other.__dict__
-
-    @property
-    def splits(self):
-        if self._splits is None:
-            self._splits = [max(self.graph.g.degree(t) - 1, 1) for t in self.nodes]
-        return self._splits
-
-    @property
-    def splits_total(self):
-        if self._split_total is None:
-            self._split_total = np.prod(self.splits)
-        return self._split_total
-
-    @property
-    def length(self):
-        return self.distance_total
 
 
 class GridEdgeIndex(object):

@@ -1,6 +1,6 @@
 import numpy as np
 from data.models import NetworkData
-from network.streetnet import NetPoint
+from point import NetPoint
 from network import itn
 from network.utils import network_walker_fixed_distance
 from networkx import MultiGraph
