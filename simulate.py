@@ -1,6 +1,5 @@
 import numpy as np
-from data.models import NetworkData
-from point import NetPoint
+from point import NetPoint, NetPointArray
 from network import itn
 from network.utils import network_walker_fixed_distance
 from networkx import MultiGraph
@@ -87,7 +86,7 @@ def uniform_random_points_on_net(net, n=1):
     Draw n NetPoints at random that lie on the supplied network
     :param net:
     :param n: Number of points to draw
-    :return: NetworkData array if n>1, else NetPoint
+    :return: NetworkPointArray if n>1, else NetPoint
     """
     all_edges = net.edges()
 
@@ -119,7 +118,7 @@ def uniform_random_points_on_net(net, n=1):
     if n == 1:
         return res[0]
     else:
-        return NetworkData(res)
+        return NetPointArray(res)
 
 
 def random_walk_normal(net_pt, sigma=1.):

@@ -1,13 +1,12 @@
 __author__ = 'gabriel'
 from itn import read_gml, ITNStreetNet
 from streetnet import NetPath, Edge
-import utils
+import utils, walker
 from point import NetPoint, NetPointArray, NetTimePointArray
 import os
 import unittest
 import numpy as np
 from matplotlib import pyplot as plt
-from validation import hotspot, roc
 import networkx as nx
 from shapely.geometry import LineString
 
@@ -253,19 +252,19 @@ class TestUtils(unittest.TestCase):
         self.itn_net = ITNStreetNet.from_data_structure(self.test_data)
 
     def test_network_edge_walker(self):
-        g = utils.network_walker(self.itn_net, repeat_edges=False, verbose=False)
+        g = walker.network_walker(self.itn_net, repeat_edges=False, verbose=False)
         res = list(g)
         # if repeat_edges == False. every edge should be covered exactly once
         self.assertEqual(len(res), len(self.itn_net.edges()))
         # since no start node was supplied, walker should have started at node 0
         self.assertEqual(res[0][0].nodes, [self.itn_net.nodes()[0]])
         # restart walk at a different node
-        g = utils.network_walker(self.itn_net, repeat_edges=False, verbose=False, source_node=self.itn_net.nodes()[-1])
+        g = walker.network_walker(self.itn_net, repeat_edges=False, verbose=False, source_node=self.itn_net.nodes()[-1])
         res2 = list(g)
         self.assertEqual(len(res2), len(self.itn_net.edges()))
 
         # now run it again using the class
-        obj = utils.NetworkWalker(self.itn_net,
+        obj = walker.NetworkWalker(self.itn_net,
                                   [],
                                   repeat_edges=False)
         g = obj.walker()
@@ -323,6 +322,9 @@ class TestNetPointArray(unittest.TestCase):
         na = NetPointArray.from_cartesian(self.net, xy)
         self.assertEqual(na.ndata, len(xy))
 
+        # test graph equality
+        self.assertEqual(na.graph, self.net)
+
         # these points are translated but after snapping will be the same
         xy2 = [
             (2.5, 1.3),
@@ -371,22 +373,22 @@ class TestNetPointArray(unittest.TestCase):
         # ... or a NetPointArray
         nt = NetTimePointArray(t, na)
 
+        self.assertEqual(nt.graph, self.net)
+
         # same location, different time
         t2 = [1.1, 2.2, 3.3, 4.4]
         nt2 = NetTimePointArray(t2, na)
 
-        # subtraction
+        # subtraction results in net-time pairs
         a = nt2 - nt
         self.assertIsInstance(a[0, 1], NetPath)
         for i, b in enumerate(a[:, 0]):
             self.assertAlmostEqual(b, t2[i] - t[i])
 
 
-pass
-
-
 
 if __name__ == "__main__":
+    from validation import hotspot, roc
     b_plot = False
 
     # mini test dataset
@@ -527,7 +529,8 @@ if __name__ == "__main__":
             plt.colorbar()
 
     # get a roughly even coverage of points across the network
-    net_points, edge_count = utils.network_point_coverage(itn_net, dx=10)
+    net_points, edge_count = walker.network_point_coverage(itn_net, dx=10)
+    net_points, edge_count = walker.network_point_coverage(itn_net, dx=10)
     xy_points = net_points.to_cartesian()
     c_edge_count = np.cumsum(edge_count)
 
@@ -555,9 +558,8 @@ if __name__ == "__main__":
         #     plotting.colorline(x, y, val, linewidth=8)
         #     j = n
 
-    from network import utils
     # n_iter = 30
-    g = utils.network_walker(itn_net, verbose=False, repeat_edges=False)
+    g = walker.network_walker(itn_net, verbose=False, repeat_edges=False)
     # res = [g.next() for i in range(n_iter)]
     res = list(g)
 
