@@ -164,7 +164,37 @@ class NetPoint(object):
         )
 
 
-class NetPointArray(object):
+class ArrayBase(object):
+
+    def __repr__(self):
+        return "{0}({1})".format(self.__class__.__name__, self.arr.__str__())
+
+    def __iter__(self):
+        return self.arr.__iter__()
+
+    def __getitem__(self, item):
+        return self.arr.__getitem__(item)
+
+    def __sub__(self, other):
+        return self.arr - other.arr
+
+    def __len__(self):
+        return len(self.arr)
+
+    @property
+    def shape(self):
+        return self.arr.shape
+
+    @property
+    def ndata(self):
+        return len(self)
+
+    @property
+    def nd(self):
+        return self.shape[1]
+
+
+class NetPointArray(ArrayBase):
 
     def __init__(self, network_points, strict=True, copy=True):
         """
@@ -179,18 +209,6 @@ class NetPointArray(object):
             for x in self.arr:
                 if x.graph is not self.graph:
                     raise AttributeError("All network points must be defined on the same graph")
-
-    def __repr__(self):
-        return "{0}({1})".format(self.__class__.__name__, self.arr.__str__())
-
-    def __iter__(self):
-        return self.arr.__iter__()
-
-    def __getitem__(self, item):
-        return self.arr.__getitem__(item)
-
-    def __sub__(self, other):
-        return self.arr - other.arr
 
     @property
     def space(self):
@@ -214,7 +232,7 @@ class NetPointArray(object):
     @classmethod
     def from_cartesian(cls, net, data, max_snap_distance=None, return_failure_idx=False):
         """
-        Generate a NetworkData object for the (x, y) coordinates in data.
+        Generate a NetPointArray object for the (x, y) coordinates in data.
         :param net: The StreetNet object that will be used to snap network points.
         :param data: N x 2 numpy array or data that can be used to instantiate one.
         :param max_snap_distance: Optionally supply a maximum snapping distance.
@@ -250,10 +268,6 @@ class NetPointArray(object):
         """
         return np.array([t.cartesian_coords for t in self.arr])
 
-    @property
-    def ndata(self):
-        return len(self.arr)
-
     def distance(self, other, directed=False):
         # distance between self and other
         if not self.ndata == other.ndata:
@@ -265,7 +279,7 @@ class NetPointArray(object):
         return np.array([x.euclidean_distance(y) for (x, y) in zip(self.space.arr, other.space.arr)])
 
 
-class NetTimePointArray(object):
+class NetTimePointArray(ArrayBase):
 
     def __init__(self, time_points, network_points, strict=True, copy=True):
         """
@@ -280,7 +294,7 @@ class NetTimePointArray(object):
             self.s = network_points.arr
         else:
             self.s = np.array(network_points, copy=copy)
-        self.t = np.array(time_points, copy=copy)
+        self.t = np.array(time_points, copy=copy).astype(float)
         if self.s.size != self.t.size:
             raise AttributeError("The net point and time arrays are not of equal sizes.")
         self.arr = np.vstack((self.t, self.s)).transpose()
@@ -289,17 +303,64 @@ class NetTimePointArray(object):
                 if x.graph is not self.graph:
                     raise AttributeError("All network points must be defined on the same graph")
 
-    def __repr__(self):
-        return "{0}({1})".format(self.__class__.__name__, self.arr.__str__())
-
-    def __iter__(self):
-        return self.arr.__iter__()
-
     def __getitem__(self, item):
-        return self.arr.__getitem__(item)
+        """
+        In order to return an object of the same class, we do the lookup separately for time and net points then
+        recombine.
+        """
+        the_arr = self.arr.__getitem__(item)
 
-    def __sub__(self, other):
-        return self.arr - other.arr
+        # check dimensionality
+        # if this has changed, return the raw data; if it is unchanged then cast to a new object
+        if len(the_arr.shape) != 2:
+            return the_arr
+        if the_arr.shape[1] != 2:
+            return the_arr
+
+        t = the_arr[:, 0]
+        s = the_arr[:, 1]
+
+        return self.__class__(time_points=t, network_points=s)
+
+    @classmethod
+    def from_cartesian(cls, net, data, max_snap_distance=None, return_failure_idx=False):
+        """
+        Generate a NetTimePointArray object for the (t, x, y) coordinates in data.
+        :param net: The StreetNet object that will be used to snap network points.
+        :param data: N x 3 numpy array or data that can be used to instantiate one.
+        :param max_snap_distance: Optionally supply a maximum snapping distance.
+        :param return_failure_idx: If True, output includes the index of points that did not snap. Otherwise, failed
+        snaps are removed silently from the array.
+        :return: NetTimePointArray object
+        """
+        data = np.array(data)
+        if len(data.shape) != 2:
+            raise AttributeError("Input data must be 2D")
+        if data.shape[1] != 3:
+            raise AttributeError("Input data must be 3D")
+
+        # snap spatially first
+        net_arr, fail_idx = NetPointArray.from_cartesian(
+            net,
+            data[:, 1:],
+            max_snap_distance=max_snap_distance,
+            return_failure_idx=True
+        )
+        succ_idx = sorted(list(
+            set(range(data.shape[0])) - set(fail_idx)
+        ))
+
+        # extract the time points for the net points that did not fail
+        time_succ = data[succ_idx, 0]
+        obj = cls(
+            time_points=time_succ,
+            network_points=net_arr
+        )
+
+        if return_failure_idx:
+            return obj, fail_idx
+        else:
+            return obj
 
     @property
     def graph(self):

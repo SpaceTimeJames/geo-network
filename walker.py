@@ -22,7 +22,6 @@ class NetworkWalker(object):
                  repeat_edges=True,
                  verbose=False,
                  logger=None):
-
         self.net_obj = net_obj
         self.targets = NetPointArray(targets)
         self.max_distance = max_distance
@@ -53,7 +52,7 @@ class NetworkWalker(object):
 
     @property
     def n_targets(self):
-        return self.targets.ndata
+        return len(self.targets)
 
     def caching_func(self, key, gen):
         """ caches then yields the results of the supplied generator, using supplied key """
@@ -519,8 +518,8 @@ def network_paths_source_targets(net_obj,
     )[0]
     reduced_targets = target_points[reduced_target_idx]
     logger.debug("Initial filtering reduces number of targets from {0} to {1}".format(
-        target_points.ndata,
-        reduced_targets.ndata))
+        len(target_points),
+        len(reduced_targets)))
 
 
     # cartesian filtering by NetPoint
@@ -535,7 +534,7 @@ def network_paths_source_targets(net_obj,
 
     for path, edge in g:
         # test whether any targets lie on the new edge
-        for i, t in enumerate(reduced_targets.toarray(0)):
+        for i, t in enumerate(reduced_targets):
             if t.edge == edge:
                 # get distance from current node to this point
                 if not len(path.nodes):
